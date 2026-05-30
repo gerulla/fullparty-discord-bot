@@ -35,7 +35,13 @@ describe("setupCommand", () => {
       content: expect.stringContaining("FullParty Server Setup") as string,
       flags: MessageFlags.Ephemeral,
     });
-    expect(getReplyComponents(reply)).toHaveLength(4);
+    expect(reply.calls[0]?.[0]).toMatchObject({
+      content: expect.stringContaining("2. Member-Facing Channel") as string,
+    });
+    expect(reply.calls[0]?.[0]).toMatchObject({
+      content: expect.stringContaining("3. Template Role") as string,
+    });
+    expect(getReplyComponents(reply)).toHaveLength(5);
   });
 
   it("blocks setup outside guilds", async () => {
@@ -143,6 +149,26 @@ describe("setupCommand", () => {
     ]);
   });
 
+  it("saves the selected bot moderator role", async () => {
+    const context = createContext();
+    const update = createAsyncRecorder();
+
+    await setupCommand.handleComponent?.(
+      createRoleSelectInteraction({
+        customId: "setup:bot_moderator_role",
+        update: update.fn,
+        values: ["bot-moderator-role-id"],
+      }),
+      context,
+    );
+
+    expect(context.patches).toEqual([
+      {
+        botModeratorRoleId: "bot-moderator-role-id",
+      },
+    ]);
+  });
+
   it("saves the name sync preference", async () => {
     const context = createContext();
     const update = createAsyncRecorder();
@@ -207,11 +233,7 @@ function createContext(initialSettings?: GuildSettings): TestContext {
       update: (guildId, patch) => {
         patches.push(patch);
 
-        return Promise.resolve({
-          ...settings,
-          ...patch,
-          guildId,
-        });
+        return Promise.resolve(mergeTestSettings(settings, guildId, patch));
       },
     },
     logger: {
@@ -223,6 +245,40 @@ function createContext(initialSettings?: GuildSettings): TestContext {
     payloads: new LatestPayloadStore(),
     patches,
   };
+}
+
+function mergeTestSettings(
+  settings: GuildSettings,
+  guildId: string,
+  patch: GuildSettingsPatch,
+): GuildSettings {
+  const next: GuildSettings = {
+    guildId,
+    syncDiscordNamesToFf14:
+      patch.syncDiscordNamesToFf14 ?? settings.syncDiscordNamesToFf14,
+  };
+
+  setOptionalSetting(next, "botLogChannelId", patch, settings);
+  setOptionalSetting(next, "botModeratorRoleId", patch, settings);
+  setOptionalSetting(next, "runAnnouncementChannelId", patch, settings);
+  setOptionalSetting(next, "upcomingRaiderRoleId", patch, settings);
+
+  return next;
+}
+
+function setOptionalSetting(
+  next: GuildSettings,
+  key: keyof Omit<GuildSettingsPatch, "syncDiscordNamesToFf14">,
+  patch: GuildSettingsPatch,
+  settings: GuildSettings,
+): void {
+  const value = Object.prototype.hasOwnProperty.call(patch, key)
+    ? patch[key]
+    : settings[key];
+
+  if (value) {
+    next[key] = value;
+  }
 }
 
 function createChatInputInteraction(

@@ -10,6 +10,8 @@ describe("commands", () => {
 
     expect(commands.map((command) => command.name)).toEqual([
       "applications",
+      "clearrole",
+      "faq",
       "help",
       "link",
       "ping",
@@ -19,6 +21,8 @@ describe("commands", () => {
     ]);
 
     const applications = commands.find((command) => command.name === "applications");
+    const clearrole = commands.find((command) => command.name === "clearrole");
+    const faq = commands.find((command) => command.name === "faq");
     const help = commands.find((command) => command.name === "help");
     const link = commands.find((command) => command.name === "link");
     const payload = commands.find((command) => command.name === "payload");
@@ -27,6 +31,8 @@ describe("commands", () => {
     const setup = commands.find((command) => command.name === "setup");
 
     expect(applications).toBeDefined();
+    expect(clearrole).toBeDefined();
+    expect(faq).toBeDefined();
     expect(help).toBeDefined();
     expect(link).toBeDefined();
     expect(payload).toBeDefined();
@@ -34,9 +40,19 @@ describe("commands", () => {
     expect(runs).toBeDefined();
     expect(setup).toBeDefined();
 
-    if (!applications || !help || !link || !payload || !ping || !runs || !setup) {
+    if (
+      !applications ||
+      !clearrole ||
+      !faq ||
+      !help ||
+      !link ||
+      !payload ||
+      !ping ||
+      !runs ||
+      !setup
+    ) {
       throw new Error(
-        "Expected applications, help, link, ping, payload, runs, and setup commands to be registered.",
+        "Expected applications, clearrole, faq, help, link, ping, payload, runs, and setup commands to be registered.",
       );
     }
 
@@ -87,6 +103,17 @@ describe("commands", () => {
       InteractionContextType.BotDM,
       InteractionContextType.PrivateChannel,
     ]);
+    expect(faq.integration_types).toEqual(
+      expect.arrayContaining([
+        ApplicationIntegrationType.GuildInstall,
+        ApplicationIntegrationType.UserInstall,
+      ]),
+    );
+    expect(faq.contexts).toEqual([
+      InteractionContextType.Guild,
+      InteractionContextType.BotDM,
+      InteractionContextType.PrivateChannel,
+    ]);
     expect(link.integration_types).toEqual(
       expect.arrayContaining([
         ApplicationIntegrationType.GuildInstall,
@@ -112,6 +139,10 @@ describe("commands", () => {
       InteractionContextType.BotDM,
       InteractionContextType.PrivateChannel,
     ]);
+    expect(clearrole.integration_types).toEqual([
+      ApplicationIntegrationType.GuildInstall,
+    ]);
+    expect(clearrole.contexts).toEqual([InteractionContextType.Guild]);
     expect(setup.integration_types).toEqual([ApplicationIntegrationType.GuildInstall]);
     expect(setup.contexts).toEqual([InteractionContextType.Guild]);
   });

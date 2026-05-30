@@ -22,6 +22,14 @@ export const payloadCommand: ChatInputCommand = {
       InteractionContextType.PrivateChannel,
     ),
   async execute(interaction, context) {
+    if (interaction.user.id !== context.payloadCommandAllowedUserId) {
+      await interaction.reply({
+        content: "You are not allowed to use this debug command.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
     const latestPayload = context.payloads.get();
 
     if (!latestPayload) {

@@ -12,6 +12,7 @@ export type GuildSettingsStore = {
 
 type GuildSettingsRow = {
   bot_log_channel_id: string | null;
+  bot_moderator_role_id: string | null;
   guild_id: string;
   run_announcement_channel_id: string | null;
   sync_discord_names_to_ff14: number;
@@ -33,6 +34,7 @@ export class SqliteGuildSettingsStore implements GuildSettingsStore {
         `
           SELECT
             bot_log_channel_id,
+            bot_moderator_role_id,
             guild_id,
             run_announcement_channel_id,
             sync_discord_names_to_ff14,
@@ -61,14 +63,16 @@ export class SqliteGuildSettingsStore implements GuildSettingsStore {
         `
           INSERT INTO guild_settings (
             bot_log_channel_id,
+            bot_moderator_role_id,
             guild_id,
             run_announcement_channel_id,
             sync_discord_names_to_ff14,
             upcoming_raider_role_id,
             updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(guild_id) DO UPDATE SET
             bot_log_channel_id = excluded.bot_log_channel_id,
+            bot_moderator_role_id = excluded.bot_moderator_role_id,
             run_announcement_channel_id = excluded.run_announcement_channel_id,
             sync_discord_names_to_ff14 = excluded.sync_discord_names_to_ff14,
             upcoming_raider_role_id = excluded.upcoming_raider_role_id,
@@ -77,6 +81,7 @@ export class SqliteGuildSettingsStore implements GuildSettingsStore {
       )
       .run(
         next.botLogChannelId ?? null,
+        next.botModeratorRoleId ?? null,
         next.guildId,
         next.runAnnouncementChannelId ?? null,
         next.syncDiscordNamesToFf14 ? 1 : 0,
@@ -96,6 +101,7 @@ export class SqliteGuildSettingsStore implements GuildSettingsStore {
       CREATE TABLE IF NOT EXISTS guild_settings (
         guild_id TEXT PRIMARY KEY,
         bot_log_channel_id TEXT,
+        bot_moderator_role_id TEXT,
         run_announcement_channel_id TEXT,
         upcoming_raider_role_id TEXT,
         sync_discord_names_to_ff14 INTEGER NOT NULL DEFAULT 0
@@ -103,6 +109,23 @@ export class SqliteGuildSettingsStore implements GuildSettingsStore {
         updated_at TEXT
       )
     `);
+    this.addColumnIfMissing("guild_settings", "bot_moderator_role_id", "TEXT");
+  }
+
+  private addColumnIfMissing(
+    tableName: string,
+    columnName: string,
+    definition: string,
+  ): void {
+    const rows = this.database.prepare(`PRAGMA table_info(${tableName})`).all() as {
+      name: string;
+    }[];
+
+    if (rows.some((row) => row.name === columnName)) {
+      return;
+    }
+
+    this.database.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
   }
 }
 
@@ -117,13 +140,33 @@ function mergeGuildSettingsPatch(
       patch.syncDiscordNamesToFf14 ?? current.syncDiscordNamesToFf14,
     updatedAt: new Date().toISOString(),
   };
-  const botLogChannelId = patch.botLogChannelId ?? current.botLogChannelId;
-  const runAnnouncementChannelId =
-    patch.runAnnouncementChannelId ?? current.runAnnouncementChannelId;
-  const upcomingRaiderRoleId = patch.upcomingRaiderRoleId ?? current.upcomingRaiderRoleId;
+  const botLogChannelId = getPatchValue(
+    patch,
+    "botLogChannelId",
+    current.botLogChannelId,
+  );
+  const botModeratorRoleId = getPatchValue(
+    patch,
+    "botModeratorRoleId",
+    current.botModeratorRoleId,
+  );
+  const runAnnouncementChannelId = getPatchValue(
+    patch,
+    "runAnnouncementChannelId",
+    current.runAnnouncementChannelId,
+  );
+  const upcomingRaiderRoleId = getPatchValue(
+    patch,
+    "upcomingRaiderRoleId",
+    current.upcomingRaiderRoleId,
+  );
 
   if (botLogChannelId) {
     next.botLogChannelId = botLogChannelId;
+  }
+
+  if (botModeratorRoleId) {
+    next.botModeratorRoleId = botModeratorRoleId;
   }
 
   if (runAnnouncementChannelId) {
@@ -137,6 +180,14 @@ function mergeGuildSettingsPatch(
   return next;
 }
 
+function getPatchValue(
+  patch: GuildSettingsPatch,
+  key: keyof Omit<GuildSettingsPatch, "syncDiscordNamesToFf14">,
+  currentValue: string | undefined,
+): string | null | undefined {
+  return Object.prototype.hasOwnProperty.call(patch, key) ? patch[key] : currentValue;
+}
+
 function rowToGuildSettings(row: GuildSettingsRow): GuildSettings {
   const settings: GuildSettings = {
     guildId: row.guild_id,
@@ -145,6 +196,10 @@ function rowToGuildSettings(row: GuildSettingsRow): GuildSettings {
 
   if (row.bot_log_channel_id) {
     settings.botLogChannelId = row.bot_log_channel_id;
+  }
+
+  if (row.bot_moderator_role_id) {
+    settings.botModeratorRoleId = row.bot_moderator_role_id;
   }
 
   if (row.run_announcement_channel_id) {

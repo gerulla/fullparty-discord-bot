@@ -326,6 +326,9 @@ function createInteraction(options: FakeInteractionOptions = {}): Interaction {
     isChatInputCommand: () => true,
     replied: options.replied ?? false,
     reply: options.reply ?? reply.fn,
+    user: {
+      id: "discord-user-id",
+    },
   } as unknown as Interaction;
 }
 
@@ -345,6 +348,9 @@ function createComponentInteraction(options: FakeInteractionOptions = {}): Inter
     isRoleSelectMenu: () => false,
     replied: options.replied ?? false,
     reply: options.reply ?? reply.fn,
+    user: {
+      id: "discord-user-id",
+    },
   } as unknown as Interaction;
 }
 

@@ -92,7 +92,7 @@ describe("FullpartyApiClient", () => {
     });
 
     await expect(
-      client.getDiscordUserApplications("182520880277094400"),
+      client.getDiscordUserApplications("123456789012345678"),
     ).resolves.toEqual({
       data: [],
     });
@@ -106,7 +106,7 @@ describe("FullpartyApiClient", () => {
     }
 
     expect(fetchInputToUrl(call.input)).toBe(
-      "http://fullparty.test/api/integrations/discord-users/182520880277094400/applications",
+      "http://fullparty.test/api/integrations/discord-users/123456789012345678/applications",
     );
   });
 
@@ -129,7 +129,7 @@ describe("FullpartyApiClient", () => {
     });
 
     await expect(
-      client.getDiscordUserUpcomingRuns("182520880277094400"),
+      client.getDiscordUserUpcomingRuns("123456789012345678"),
     ).resolves.toEqual({
       data: [],
     });
@@ -143,7 +143,7 @@ describe("FullpartyApiClient", () => {
     }
 
     expect(fetchInputToUrl(call.input)).toBe(
-      "http://fullparty.test/api/integrations/discord-users/182520880277094400/upcoming-runs",
+      "http://fullparty.test/api/integrations/discord-users/123456789012345678/upcoming-runs",
     );
   });
 
@@ -169,7 +169,7 @@ describe("FullpartyApiClient", () => {
     await expect(
       client.linkDiscordUser({
         avatarUrl: "https://cdn.discordapp.com/avatar.png",
-        discordUserId: "182520880277094400",
+        discordUserId: "123456789012345678",
         globalName: "Giki",
         token: "ABCD1234-EFGH5678",
         username: "yenpress",
@@ -197,7 +197,7 @@ describe("FullpartyApiClient", () => {
     expect(headers.get("content-type")).toBe("application/json");
     expect(parseJsonRequestBody(call)).toEqual({
       avatar_url: "https://cdn.discordapp.com/avatar.png",
-      discord_user_id: "182520880277094400",
+      discord_user_id: "123456789012345678",
       global_name: "Giki",
       token: "ABCD1234-EFGH5678",
       username: "yenpress",
@@ -258,6 +258,54 @@ describe("FullpartyApiClient", () => {
       name: "Raid Server",
       permissions: "123456",
       token: "ABCD1234-EFGH5678",
+    });
+  });
+
+  it("includes a null icon URL when linking a Discord guild without an icon", async () => {
+    const calls: FetchCall[] = [];
+    const fetcher: typeof fetch = (input, init) => {
+      const call: FetchCall = init === undefined ? { input } : { input, init };
+      calls.push(call);
+
+      return Promise.resolve(
+        new Response(JSON.stringify({ linked: true }), {
+          headers: { "content-type": "application/json" },
+          status: 200,
+        }),
+      );
+    };
+    const client = new FullpartyApiClient({
+      apiToken: "api-token",
+      baseUrl: "http://fullparty.test/api",
+      fetcher,
+    });
+
+    await expect(
+      client.linkDiscordGuild({
+        discordGuildId: "1379217636696789022",
+        iconUrl: null,
+        name: "Raid Server",
+        permissions: "7336347924769856",
+        token: "JHGC7JJQ-TXEOUHAR",
+      }),
+    ).resolves.toEqual({
+      linked: true,
+    });
+
+    const call = calls.at(0);
+
+    expect(call).toBeDefined();
+
+    if (!call) {
+      throw new Error("Expected fetch to be called.");
+    }
+
+    expect(parseJsonRequestBody(call)).toEqual({
+      discord_guild_id: "1379217636696789022",
+      icon_url: null,
+      name: "Raid Server",
+      permissions: "7336347924769856",
+      token: "JHGC7JJQ-TXEOUHAR",
     });
   });
 

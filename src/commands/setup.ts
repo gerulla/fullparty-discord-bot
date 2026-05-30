@@ -23,6 +23,7 @@ type SetupActionRow =
 
 const SetupCustomId = {
   BotLogChannel: "setup:bot_log_channel",
+  BotModeratorRole: "setup:bot_moderator_role",
   NameSyncDisabled: "setup:name_sync:disabled",
   NameSyncEnabled: "setup:name_sync:enabled",
   RunAnnouncementChannel: "setup:run_announcement_channel",
@@ -75,9 +76,10 @@ function buildSetupPanel(settings: GuildSettings): {
       "**FullParty Server Setup**",
       "",
       "1. Bot-log channel: " + formatChannel(settings.botLogChannelId),
-      "2. Run announcement channel: " + formatChannel(settings.runAnnouncementChannelId),
-      "3. Upcoming raider role: " + formatRole(settings.upcomingRaiderRoleId),
-      "4. Sync Discord names to FF14 character names: " +
+      "2. Member-Facing Channel: " + formatChannel(settings.runAnnouncementChannelId),
+      "3. Template Role: " + formatRole(settings.upcomingRaiderRoleId),
+      "4. Bot moderator role: " + formatRole(settings.botModeratorRoleId),
+      "5. Sync Discord names to FF14 character names: " +
         formatEnabled(settings.syncDiscordNamesToFf14),
       "",
       "Use the controls below from top to bottom. Changes save immediately.",
@@ -98,7 +100,7 @@ function buildSetupComponents(settings: GuildSettings): SetupActionRow[] {
     new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(
       new ChannelSelectMenuBuilder()
         .setCustomId(SetupCustomId.RunAnnouncementChannel)
-        .setPlaceholder("2. Choose run announcement channel")
+        .setPlaceholder("2. Choose Member-Facing Channel")
         .setMinValues(1)
         .setMaxValues(1)
         .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement),
@@ -107,10 +109,17 @@ function buildSetupComponents(settings: GuildSettings): SetupActionRow[] {
     new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(
       new RoleSelectMenuBuilder()
         .setCustomId(SetupCustomId.UpcomingRaiderRole)
-        .setPlaceholder("3. Choose upcoming raider role")
+        .setPlaceholder("3. Choose Template Role")
         .setMinValues(1)
         .setMaxValues(1),
     );
+  const botModeratorRoleRow = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(
+    new RoleSelectMenuBuilder()
+      .setCustomId(SetupCustomId.BotModeratorRole)
+      .setPlaceholder("4. Choose bot moderator role")
+      .setMinValues(1)
+      .setMaxValues(1),
+  );
   const nameSyncRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(SetupCustomId.NameSyncEnabled)
@@ -128,6 +137,7 @@ function buildSetupComponents(settings: GuildSettings): SetupActionRow[] {
     botLogChannelRow,
     runAnnouncementChannelRow,
     upcomingRaiderRoleRow,
+    botModeratorRoleRow,
     nameSyncRow,
   ];
 }
@@ -158,6 +168,10 @@ function getSettingsPatch(interaction: SetupComponentInteraction) {
 
     if (interaction.customId === SetupCustomId.UpcomingRaiderRole) {
       return { upcomingRaiderRoleId: selectedRoleId };
+    }
+
+    if (interaction.customId === SetupCustomId.BotModeratorRole) {
+      return { botModeratorRoleId: selectedRoleId };
     }
   }
 

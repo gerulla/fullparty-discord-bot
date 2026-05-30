@@ -42,8 +42,9 @@ function createHelpMessage(fullpartyWebBaseUrl: string): string {
     "`/link token:<code>` - Link your Discord account in DMs, or link a Discord server when used in that server with a group link token.",
     "`/runs` - Show your upcoming FullParty runs. DM only. Requires a linked FullParty account.",
     "`/applications` - Show your FullParty applications. DM only. Requires a linked FullParty account.",
-    "`/setup` - Configure server channels, roles, and sync preferences. Server only. Requires Manage Server.",
-    "`/payload` - Show the latest FullParty event/API payload captured by the bot. Debug/admin helper.",
+    "`/faq` - Explain how the Template Role, Bot Moderator Role, and Member-Facing Channel work.",
+    "`/setup` - Configure server channels, roles, moderator access, and sync preferences. Server only. Requires Manage Server.",
+    "`/clearrole role:<role>` - Delete a stuck temporary FullParty run role. Server only. Requires Manage Server or the configured bot moderator role.",
     "`/ping` - Quick bot responsiveness check.",
     "`/help` - Show this message.",
   ].join("\n");

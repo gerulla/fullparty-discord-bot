@@ -8,6 +8,7 @@ import type { BotContext } from "../bot/context.js";
 import { getCommandMap, getComponentCommand } from "../commands/index.js";
 import type { ChatInputCommand, SetupComponentInteraction } from "../commands/types.js";
 import { FullpartyApiError } from "../fullparty/client.js";
+import { recordFailureSafely, serializeFailureError } from "../health/failureReporter.js";
 
 export function createInteractionHandler(
   context: BotContext,
@@ -52,6 +53,18 @@ async function handleChatInputCommand(
       commandName: interaction.commandName,
       error,
     });
+    recordFailureSafely(context.failureReporter, context.logger, {
+      action: interaction.commandName,
+      details: {
+        error: serializeFailureError(error),
+      },
+      discordGuildId: interaction.guildId ?? undefined,
+      discordUserId: interaction.user.id,
+      errorCode: getCommandErrorCode(error),
+      message: getErrorMessage(error),
+      severity: "error",
+      source: "command",
+    });
     await replyWithError(interaction, error, context.fullpartyWebBaseUrl);
   }
 }
@@ -80,6 +93,18 @@ async function handleComponentInteraction(
     context.logger.error("Component interaction failed.", {
       customId: interaction.customId,
       error,
+    });
+    recordFailureSafely(context.failureReporter, context.logger, {
+      action: interaction.customId,
+      details: {
+        error: serializeFailureError(error),
+      },
+      discordGuildId: interaction.guildId ?? undefined,
+      discordUserId: interaction.user.id,
+      errorCode: getCommandErrorCode(error),
+      message: getErrorMessage(error),
+      severity: "error",
+      source: "component",
     });
     await replyWithError(interaction, error, context.fullpartyWebBaseUrl);
   }
@@ -189,3 +214,15 @@ const unlinkedDiscordUserPatterns = [
   /linked\s+discord\s+user\s+.+not\s+(?:be\s+)?found/u,
   /discord\s+user\s+.+not\s+(?:be\s+)?found/u,
 ];
+
+function getCommandErrorCode(error: unknown): string | undefined {
+  if (error instanceof FullpartyApiError) {
+    return `fullparty_api_${String(error.status)}`;
+  }
+
+  return error instanceof Error ? error.name : undefined;
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}

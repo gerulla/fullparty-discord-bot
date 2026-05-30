@@ -633,7 +633,7 @@ describe("NotificationMessageService", () => {
         actionUrl: "http://fullparty.test/en/groups/asdd/activities/6927",
         color: 0xd83c3e,
         description:
-          "Activity #6927 in asd was cancelled.\n\nScheduled start: 30 May 2026, 01:00 UTC\nStatus: Cancelled",
+          "Activity #6927 in asd was cancelled.\n\nScheduled start: <t:1780102800:F> (<t:1780102800:R>)\nStatus: Cancelled",
         footerText: "🗓️ FullParty • Runs And Reminders",
         title: "Run cancelled",
       },
@@ -696,7 +696,7 @@ describe("NotificationMessageService", () => {
         actionUrl: "http://fullparty.test/en/groups/asdd/activities/6928",
         color: 0x22c55e,
         description:
-          "Activity #6928 in asd was completed.\n\nScheduled start: 30 May 2026, 01:00 UTC\nStatus: Complete\nCompleted at: 29 May 2026, 23:38 UTC\nProgress: 34%\nEntry mode: Manual\nMilestones:\n- AAC Cruiserweight M1: 34% best, 3 kills",
+          "Activity #6928 in asd was completed.\n\nScheduled start: <t:1780102800:F> (<t:1780102800:R>)\nStatus: Complete\nCompleted at: <t:1780097926:F> (<t:1780097926:R>)\nProgress: 34%\nEntry mode: Manual\nMilestones:\n- AAC Cruiserweight M1: 34% best, 3 kills",
         footerText: "🗓️ FullParty • Runs And Reminders",
         title: "Run completed",
       },
@@ -733,9 +733,46 @@ describe("NotificationMessageService", () => {
         actionUrl: "http://fullparty.test/en/groups/asdd/activities/6930",
         color: 0xf59e0b,
         description:
-          "SOme Custom Tiutle in asd starts soon.\n\nScheduled start: 30 May 2026, 01:20 UTC\nStatus: Assigned",
+          "SOme Custom Tiutle in asd starts soon.\n\nScheduled start: <t:1780104000:F> (<t:1780104000:R>)\nStatus: Assigned",
         footerText: "🗓️ FullParty • Runs And Reminders",
         title: "Run starting soon",
+      },
+    );
+  });
+
+  it("includes run starting now details when present", () => {
+    const service = new NotificationMessageService({
+      fullpartyWebBaseUrl: "https://fullparty.gg",
+    });
+
+    expectNotificationMessage(
+      service.createDmMessage(
+        createNotificationDelivery({
+          actionUrl: "http://fullparty.test/groups/static-name/activities/123/overview",
+          category: "runs_and_reminders",
+          params: {
+            activity: "AAC Light-heavyweight M4 (Savage)",
+            group: "Static Name",
+          },
+          payload: {
+            activity_id: 123,
+            activity_title: "AAC Light-heavyweight M4 (Savage)",
+            group_id: 5,
+            group_slug: "static-name",
+            starts_at: "2026-05-30T20:00:00+00:00",
+            status: "upcoming",
+          },
+          type: "runs.starting_now",
+        }),
+      ),
+      {
+        actionLabel: "View run",
+        actionUrl: "http://fullparty.test/groups/static-name/activities/123/overview",
+        color: 0xf59e0b,
+        description:
+          "AAC Light-heavyweight M4 (Savage) in Static Name is starting now.\n\nScheduled start: <t:1780171200:F> (<t:1780171200:R>)\nStatus: Upcoming",
+        footerText: "🗓️ FullParty • Runs And Reminders",
+        title: "Run starting now",
       },
     );
   });

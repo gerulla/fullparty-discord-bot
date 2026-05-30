@@ -13,6 +13,9 @@ const urlString = z.preprocess(
 );
 
 export const appConfigSchema = z.object({
+  BOT_FAILURE_LOG_PATH: nonEmptyString.default(
+    "data/fullparty-discord-bot-failures.jsonl",
+  ),
   DATABASE_PATH: nonEmptyString.default("data/fullparty-discord-bot.sqlite"),
   DISCORD_CLIENT_ID: nonEmptyString,
   DISCORD_COMMAND_REGISTER_SCOPE: z.enum(["global", "guild"]).default("global"),
@@ -22,10 +25,35 @@ export const appConfigSchema = z.object({
   FULLPARTY_API_TOKEN: optionalNonEmptyString,
   FULLPARTY_WEB_BASE_URL: urlString.default("https://fullparty.gg"),
   FULLPARTY_WEBHOOK_SIGNING_SECRET: nonEmptyString,
+  GUILD_AUTOMATION_QUEUE_CONCURRENCY: z.coerce.number().int().min(1).max(10).default(2),
+  GUILD_AUTOMATION_QUEUE_POLL_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .min(250)
+    .max(60_000)
+    .default(1000),
+  GUILD_MEMBER_CACHE_CONCURRENCY: z.coerce.number().int().min(1).max(5).default(1),
+  GUILD_MEMBER_CACHE_PURGE_AFTER_MS: z.coerce
+    .number()
+    .int()
+    .min(60_000)
+    .default(604_800_000),
+  GUILD_MEMBER_CACHE_REFRESH_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .min(60_000)
+    .default(86_400_000),
+  GUILD_MEMBER_CACHE_RETRY_AFTER_MS: z.coerce.number().int().min(60_000).default(900_000),
+  GUILD_MEMBER_CACHE_SWEEP_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .min(10_000)
+    .default(300_000),
   HTTP_HOST: nonEmptyString.default("0.0.0.0"),
   HTTP_PORT: z.coerce.number().int().min(1).max(65_535).default(3000),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  PAYLOAD_COMMAND_ALLOWED_USER_ID: optionalNonEmptyString,
 });
 
 export type AppConfig = z.infer<typeof appConfigSchema>;

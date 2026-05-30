@@ -1,4 +1,4 @@
-import { Client, Events } from "discord.js";
+import { Client, Events, type Guild, type GuildMember } from "discord.js";
 import { describe, expect, it } from "vitest";
 
 import type { BotContext } from "../src/bot/context.js";
@@ -12,6 +12,10 @@ describe("createBotClient", () => {
     const client = createBotClient(context);
 
     expect(client.listenerCount(Events.ClientReady)).toBe(1);
+    expect(client.listenerCount(Events.GuildCreate)).toBe(1);
+    expect(client.listenerCount(Events.GuildDelete)).toBe(1);
+    expect(client.listenerCount(Events.GuildMemberAdd)).toBe(1);
+    expect(client.listenerCount(Events.GuildMemberRemove)).toBe(1);
     expect(client.listenerCount(Events.InteractionCreate)).toBe(1);
 
     client.emit(Events.ClientReady, {
@@ -23,14 +27,47 @@ describe("createBotClient", () => {
 
     void client.destroy();
   });
+
+  it("keeps the guild member cache updated from Discord member events", () => {
+    const context = createContext();
+    const client = createBotClient(context);
+
+    client.emit(Events.GuildMemberAdd, {
+      guild: { id: "guild-id" },
+      id: "user-id",
+    } as unknown as GuildMember);
+    client.emit(Events.GuildMemberRemove, {
+      guild: { id: "guild-id" },
+      id: "user-id",
+    } as unknown as GuildMember);
+    client.emit(Events.GuildCreate, {
+      id: "guild-id",
+    } as unknown as Guild);
+    client.emit(Events.GuildDelete, {
+      id: "guild-id",
+    } as unknown as Guild);
+
+    expect(context.memberCacheCalls).toEqual([
+      ["seen", "guild-id", "user-id"],
+      ["removed", "guild-id", "user-id"],
+      ["deleteGuild", "guild-id"],
+    ]);
+    expect(context.schedulerCalls).toEqual([["refresh", "guild-id", "guild_joined"]]);
+
+    void client.destroy();
+  });
 });
 
 type TestContext = BotContext & {
   logCalls: string[][];
+  memberCacheCalls: string[][];
+  schedulerCalls: string[][];
 };
 
 function createContext(): TestContext {
   const logCalls: string[][] = [];
+  const memberCacheCalls: string[][] = [];
+  const schedulerCalls: string[][] = [];
 
   return {
     fullparty: new FullpartyApiClient({
@@ -38,6 +75,35 @@ function createContext(): TestContext {
       fetcher: () => Promise.resolve(new Response(null, { status: 204 })),
     }),
     fullpartyWebBaseUrl: "https://fullparty.gg",
+    guildMemberCache: {
+      deleteGuild: (guildId: string) => {
+        memberCacheCalls.push(["deleteGuild", guildId]);
+
+        return Promise.resolve();
+      },
+      markMemberRemoved: (guildId: string, userId: string) => {
+        memberCacheCalls.push(["removed", guildId, userId]);
+
+        return Promise.resolve();
+      },
+      markMemberSeen: (guildId: string, userId: string) => {
+        memberCacheCalls.push(["seen", guildId, userId]);
+
+        return Promise.resolve();
+      },
+    } as never,
+    guildMemberCacheScheduler: {
+      enqueueRefresh: (guildId: string, reason: string) => {
+        schedulerCalls.push(["refresh", guildId, reason]);
+
+        return Promise.resolve({
+          alreadyQueued: false,
+          discordGuildId: guildId,
+          queued: true,
+          reason,
+        });
+      },
+    } as never,
     guildSettings: {
       get: (guildId) => Promise.resolve({ guildId, syncDiscordNamesToFf14: false }),
       update: (guildId) => Promise.resolve({ guildId, syncDiscordNamesToFf14: false }),
@@ -57,6 +123,8 @@ function createContext(): TestContext {
         logCalls.push(["warn", message]);
       },
     },
+    memberCacheCalls,
     payloads: new LatestPayloadStore(),
+    schedulerCalls,
   };
 }

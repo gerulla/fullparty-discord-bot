@@ -2,10 +2,30 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { AddressInfo } from "node:net";
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-import { type Client, type MessageCreateOptions } from "discord.js";
+import { PermissionFlagsBits } from "discord.js";
+import type { APIEmbed, APIEmbedField, Client, MessageCreateOptions } from "discord.js";
 import { z } from "zod";
 
 import type { BotContext } from "../bot/context.js";
+import {
+  createDiscordGuildSnapshot,
+  serializeGuildSettings,
+} from "../guildAutomation/guildSnapshot.js";
+import {
+  guildRunCompletedDataSchema,
+  guildRunReminderDataSchema,
+  type GuildRunCompletedData,
+  type GuildRunReminderData,
+} from "../guildAutomation/runReminderTypes.js";
+import type { GuildMemberCacheSnapshot } from "../guildMembership/memberCacheStore.js";
+import type { GuildSettings } from "../guildSettings/types.js";
+import type { GuildSettingsPatch } from "../guildSettings/types.js";
+import {
+  type HealthStatus,
+  recordFailureSafely,
+  serializeFailureError,
+} from "../health/failureReporter.js";
+import { formatDiscordDateTime } from "../lib/discordTimestamps.js";
 import { NotificationMessageService } from "../notifications/notificationMessageService.js";
 import { notificationDeliveryDataSchema } from "../notifications/types.js";
 
@@ -24,20 +44,44 @@ const userAppEventDataSchema = z.looseObject({
   welcome_message: z.string().trim().min(1).max(2000).optional(),
 });
 
+const guildSnapshotRequestedDataSchema = z.looseObject({
+  discord_guild_id: z.string().trim().min(1),
+});
+
+const guildMembershipSnapshotRequestedDataSchema = z.looseObject({
+  discord_guild_id: z.string().trim().min(1),
+  include_member_ids: z.boolean().optional(),
+  request_refresh_if_stale: z.boolean().optional(),
+});
+
+const nullableSettingIdSchema = z.string().trim().min(1).nullable().optional();
+
+const guildSettingsUpdatedDataSchema = z.looseObject({
+  discord_guild_id: z.string().trim().min(1),
+  settings: z.looseObject({
+    bot_log_channel_id: nullableSettingIdSchema,
+    bot_moderator_role_id: nullableSettingIdSchema,
+    run_announcement_channel_id: nullableSettingIdSchema,
+    run_role_template_id: nullableSettingIdSchema,
+    sync_discord_names_to_ff14: z.boolean().optional(),
+    upcoming_raider_role_id: nullableSettingIdSchema,
+  }),
+});
+
 const userAppDisconnectedMessage = [
   "FullParty has disconnected Discord for your account.",
   "To fully remove the app from Discord, open Discord Settings > Authorized Apps and remove FullParty.",
 ].join("\n");
 
-// TODO: Replace this with a polished onboarding message once the final integration
-// feature set and support links are settled.
 const userAppInstalledMessage = [
-  "Welcome to FullParty. Your Discord account is now connected.",
-  "This integration lets FullParty keep your Discord identity in sync with your account, unlock Discord-powered account features, and send you useful updates when something needs your attention.",
+  "Hey, welcome to FullParty. Your Discord account is connected and ready to go.",
+  "You can use `/runs` to check your upcoming runs and `/applications` to review your FullParty applications right here in DMs.",
+  "I'll also send your FullParty notifications in this DM, so run updates, applications, reminders, and account changes stay easy to find.",
   "You can disconnect this anytime from your FullParty account settings.",
 ].join("\n\n");
 
 const integrationHealthcheckEvent = "integration.healthcheck";
+const discordNicknameLimit = 32;
 
 export type WebhookServerOptions = {
   client: Client;
@@ -53,9 +97,100 @@ export type WebhookServerOptions = {
 type FullpartyEvent = z.infer<typeof fullpartyEventSchema>;
 
 type ActionResult = Record<string, unknown>;
+type GuildAutomationProcessorOptions = Pick<WebhookServerOptions, "client" | "context">;
+type HealthCheckResult = {
+  ok: boolean;
+  status: HealthStatus | "not_configured";
+  [key: string]: unknown;
+};
 
 type SendableUser = {
   send(message: MessageCreateOptions): Promise<{ id: string }>;
+};
+
+type GuildRunReminderGuild = {
+  channels?: {
+    fetch(): Promise<unknown>;
+  };
+  members: {
+    fetch(discordUserId: string): Promise<GuildRunReminderMember>;
+    me?: GuildRunReminderMember | null;
+  };
+  roles?: {
+    cache?: {
+      get(roleId: string): unknown;
+    };
+    create?(options: GuildRoleCreateOptions): Promise<GuildRunRole>;
+    fetch?(roleId: string): Promise<unknown>;
+  };
+};
+
+type GuildRunReminderMember = {
+  displayName?: string;
+  nickname?: string | null;
+  permissions?: {
+    has(permission: bigint): boolean;
+  };
+  roles?: {
+    add?(roleId: string, reason?: string): Promise<unknown>;
+    highest?: GuildRunRole;
+  };
+  setNickname?(nickname: string, reason?: string): Promise<unknown>;
+};
+
+type GuildRunRole = {
+  color?: number;
+  comparePositionTo?(role: GuildRunRole): number;
+  delete?(reason?: string): Promise<unknown>;
+  hoist?: boolean;
+  id: string;
+  mentionable?: boolean;
+  name: string;
+  permissions?: {
+    bitfield?: bigint | number | string;
+    toString?(): string;
+  };
+  position?: number;
+};
+
+type GuildRoleCreateOptions = {
+  color?: number;
+  hoist?: boolean;
+  mentionable?: boolean;
+  name: string;
+  permissions?: string;
+  reason?: string;
+};
+
+type GuildPermissionOverwrite = {
+  allow?: PermissionOverwriteValue;
+  deny?: PermissionOverwriteValue;
+  id: string;
+  type?: number | string;
+};
+
+type GuildPermissionOverwriteChannel = {
+  id: string;
+  name?: string;
+  permissionOverwrites?: {
+    cache?: {
+      get(id: string): unknown;
+    };
+    edit?(
+      roleId: string,
+      options: { allow: string; deny: string },
+      reason?: string,
+    ): Promise<unknown>;
+  };
+};
+
+type PermissionOverwriteValue = {
+  bitfield?: bigint | number | string;
+  toString?(): string;
+};
+
+type SendableChannel = {
+  send(message: MessageCreateOptions): Promise<unknown>;
 };
 
 export async function startWebhookServer(
@@ -110,10 +245,11 @@ async function handleRequest(
 ): Promise<void> {
   const url = new URL(request.url ?? "/", "http://localhost");
   let eventLogWritten = false;
+  let eventName: string | undefined;
 
   try {
     if (request.method === "GET" && url.pathname === "/health") {
-      sendJson(response, 200, { ok: true, status: "healthy" });
+      sendJson(response, 200, await createHealthResponse(options));
       return;
     }
 
@@ -143,6 +279,7 @@ async function handleRequest(
     const receivedPayload = parseJsonBody(rawBody);
     options.context.payloads.set(receivedPayload, "FullParty event payload");
     const event = parseEvent(receivedPayload);
+    eventName = event.event;
     writeEventConsoleLog(request, url, event.event, getEventDataType(event));
     eventLogWritten = true;
     const result = await dispatchEvent(event, options);
@@ -156,6 +293,10 @@ async function handleRequest(
   } catch (error) {
     if (url.pathname === "/events" && !eventLogWritten) {
       writeRejectedEventConsoleLog(request, url, error);
+    }
+
+    if (url.pathname === "/events") {
+      recordWebhookFailure(options, request, url, error, eventName);
     }
 
     handleError(response, error, options);
@@ -183,6 +324,101 @@ function writeRejectedEventConsoleLog(
   process.stdout.write(
     `[FullParty Bot] Event rejected from ${getRequestHost(request)}: ${getEventErrorCode(error)} (${request.method ?? "UNKNOWN"} ${url.pathname}).\n`,
   );
+}
+
+async function createHealthResponse(options: WebhookServerOptions): Promise<{
+  checks: Record<string, HealthCheckResult>;
+  ok: boolean;
+  status: HealthStatus;
+  timestamp: string;
+  uptime_seconds: number;
+}> {
+  const checks: Record<string, HealthCheckResult> = {
+    discord: createDiscordHealthCheck(options.client),
+  };
+
+  checks.recent_failures = options.context.failureReporter
+    ? await options.context.failureReporter.getHealthSummary()
+    : {
+        configured: false,
+        ok: true,
+        status: "not_configured",
+      };
+
+  checks.guild_automation_queue = options.context.guildRunReminderQueue?.getHealthSummary
+    ? await options.context.guildRunReminderQueue.getHealthSummary()
+    : {
+        configured: false,
+        ok: true,
+        status: "not_configured",
+      };
+
+  checks.guild_member_cache = options.context.guildMemberCacheScheduler
+    ? await options.context.guildMemberCacheScheduler.getHealthSummary()
+    : {
+        configured: false,
+        ok: true,
+        status: "not_configured",
+      };
+
+  const status = aggregateHealthStatus(Object.values(checks));
+
+  return {
+    checks,
+    ok: status !== "unhealthy",
+    status,
+    timestamp: new Date().toISOString(),
+    uptime_seconds: Math.floor(process.uptime()),
+  };
+}
+
+function createDiscordHealthCheck(client: Client): HealthCheckResult {
+  const ready = typeof client.isReady === "function" ? client.isReady() : false;
+  const pingMs = "ws" in client ? client.ws.ping : undefined;
+  const userId = client.user?.id;
+
+  return {
+    ok: ready,
+    ping_ms: typeof pingMs === "number" ? pingMs : null,
+    ready,
+    status: ready ? "healthy" : "unhealthy",
+    user_id: userId ?? null,
+  };
+}
+
+function aggregateHealthStatus(checks: HealthCheckResult[]): HealthStatus {
+  if (checks.some((check) => check.status === "unhealthy")) {
+    return "unhealthy";
+  }
+
+  if (checks.some((check) => check.status === "degraded")) {
+    return "degraded";
+  }
+
+  return "healthy";
+}
+
+function recordWebhookFailure(
+  options: WebhookServerOptions,
+  request: IncomingMessage,
+  url: URL,
+  error: unknown,
+  eventName: string | undefined,
+): void {
+  recordFailureSafely(options.context.failureReporter, options.context.logger, {
+    action: "event_processing",
+    details: {
+      error: serializeFailureError(error),
+      method: request.method ?? "UNKNOWN",
+      path: url.pathname,
+      requestHost: getRequestHost(request),
+    },
+    errorCode: getEventErrorCode(error),
+    eventType: eventName,
+    message: getErrorMessage(error),
+    severity: getFailureSeverity(error),
+    source: "webhook",
+  });
 }
 
 async function dispatchEvent(
@@ -228,11 +464,1677 @@ async function dispatchEvent(
     };
   }
 
+  if (event.event === "discord.guild.run_reminder") {
+    const data = guildRunReminderDataSchema.parse(event.data);
+
+    return options.context.guildRunReminderQueue
+      ? options.context.guildRunReminderQueue.enqueue({ data, kind: "run_reminder" })
+      : processGuildRunReminder(options, data);
+  }
+
+  if (
+    event.event === "discord.guild.run_completed" ||
+    event.event === "discord.guild.run_cancelled"
+  ) {
+    const data = parseGuildRunCleanupData(event);
+
+    return options.context.guildRunReminderQueue
+      ? options.context.guildRunReminderQueue.enqueue({ data, kind: "run_completed" })
+      : processGuildRunCompleted(options, data);
+  }
+
+  if (event.event === "discord.guild.snapshot_requested") {
+    const data = guildSnapshotRequestedDataSchema.parse(event.data);
+
+    return createGuildSnapshotResult(options, data.discord_guild_id);
+  }
+
+  if (event.event === "discord.guild.membership_snapshot_requested") {
+    const data = guildMembershipSnapshotRequestedDataSchema.parse(event.data);
+
+    return createGuildMembershipSnapshotResult(options, data);
+  }
+
+  if (event.event === "discord.guild.settings_updated") {
+    const data = guildSettingsUpdatedDataSchema.parse(event.data);
+
+    return updateGuildSettingsFromFullparty(options, data);
+  }
+
   throw new HttpError(
     400,
     "unsupported_event",
     `Unsupported Fullparty event type: ${event.event}`,
   );
+}
+
+function parseGuildRunCleanupData(event: FullpartyEvent): GuildRunCompletedData {
+  if (event.event === "discord.guild.run_cancelled") {
+    return guildRunCompletedDataSchema.parse({
+      ...(isRecord(event.data) ? event.data : {}),
+      type: "runs.cancelled",
+    });
+  }
+
+  return guildRunCompletedDataSchema.parse(event.data);
+}
+
+export async function processGuildRunReminder(
+  options: GuildAutomationProcessorOptions,
+  data: GuildRunReminderData,
+): Promise<ActionResult> {
+  const settings = await options.context.guildSettings.get(data.discord_guild_id);
+
+  return {
+    ...(await assignUpcomingRaiderRole(options, data, settings)),
+    ...(await syncRunReminderNicknames(options, data, settings)),
+  };
+}
+
+export async function processGuildRunCompleted(
+  options: GuildAutomationProcessorOptions,
+  data: GuildRunCompletedData,
+): Promise<ActionResult> {
+  const settings = await options.context.guildSettings.get(data.discord_guild_id);
+
+  return deleteRunRole(options, data, settings);
+}
+
+async function createGuildSnapshotResult(
+  options: GuildAutomationProcessorOptions,
+  discordGuildId: string,
+): Promise<ActionResult> {
+  const snapshot = await createDiscordGuildSnapshot(
+    options.client,
+    options.context,
+    discordGuildId,
+  );
+  const membershipCache = options.context.guildMemberCache
+    ? serializeGuildMemberCacheSnapshot(
+        await options.context.guildMemberCache.getSnapshot(discordGuildId, {
+          includeUserIds: false,
+        }),
+      )
+    : {
+        configured: false,
+      };
+
+  return {
+    channelCount: snapshot.channels.length,
+    discordGuildId: snapshot.discord_guild_id,
+    memberCount: snapshot.member_count,
+    membershipCache,
+    roleCount: snapshot.roles.length,
+    snapshot,
+  };
+}
+
+async function createGuildMembershipSnapshotResult(
+  options: GuildAutomationProcessorOptions,
+  data: z.infer<typeof guildMembershipSnapshotRequestedDataSchema>,
+): Promise<ActionResult> {
+  if (!options.context.guildMemberCache) {
+    return {
+      configured: false,
+      discordGuildId: data.discord_guild_id,
+      membershipCache: null,
+      refreshQueued: false,
+    };
+  }
+
+  const includeUserIds = data.include_member_ids ?? true;
+  const requestRefreshIfStale = data.request_refresh_if_stale ?? true;
+  const snapshot = await options.context.guildMemberCache.getSnapshot(
+    data.discord_guild_id,
+    {
+      includeUserIds,
+    },
+  );
+  const shouldQueueRefresh =
+    requestRefreshIfStale && snapshot.refreshStatus !== "refreshing" && snapshot.stale;
+  const refreshResult =
+    shouldQueueRefresh && options.context.guildMemberCacheScheduler
+      ? await options.context.guildMemberCacheScheduler.enqueueRefresh(
+          data.discord_guild_id,
+          "dashboard_request",
+        )
+      : undefined;
+
+  return {
+    configured: true,
+    discordGuildId: data.discord_guild_id,
+    membershipCache: serializeGuildMemberCacheSnapshot(snapshot),
+    refreshQueued: refreshResult?.queued ?? false,
+    ...(refreshResult
+      ? {
+          refreshAlreadyQueued: refreshResult.alreadyQueued,
+          refreshReason: refreshResult.reason,
+        }
+      : {}),
+  };
+}
+
+async function updateGuildSettingsFromFullparty(
+  options: GuildAutomationProcessorOptions,
+  data: z.infer<typeof guildSettingsUpdatedDataSchema>,
+): Promise<ActionResult> {
+  const patch = createGuildSettingsPatch(data.settings);
+  const settings = await options.context.guildSettings.update(
+    data.discord_guild_id,
+    patch,
+  );
+
+  return {
+    discordGuildId: data.discord_guild_id,
+    settings: serializeGuildSettings(settings),
+    updated: true,
+  };
+}
+
+function createGuildSettingsPatch(
+  settings: GuildSettingsUpdatedSettings,
+): GuildSettingsPatch {
+  const patch: GuildSettingsPatch = {};
+
+  setPatchId(settings, patch, "bot_log_channel_id", "botLogChannelId");
+  setPatchId(settings, patch, "bot_moderator_role_id", "botModeratorRoleId");
+  setPatchId(settings, patch, "run_announcement_channel_id", "runAnnouncementChannelId");
+  setPatchId(settings, patch, "upcoming_raider_role_id", "upcomingRaiderRoleId");
+
+  if (hasOwn(settings, "run_role_template_id")) {
+    patch.upcomingRaiderRoleId = settings.run_role_template_id ?? null;
+  }
+
+  if (
+    typeof settings.sync_discord_names_to_ff14 === "boolean" &&
+    hasOwn(settings, "sync_discord_names_to_ff14")
+  ) {
+    patch.syncDiscordNamesToFf14 = settings.sync_discord_names_to_ff14;
+  }
+
+  return patch;
+}
+
+type GuildSettingsUpdatedSettings = z.infer<
+  typeof guildSettingsUpdatedDataSchema
+>["settings"];
+type GuildSettingsUpdatedIdKey =
+  | "bot_log_channel_id"
+  | "bot_moderator_role_id"
+  | "run_announcement_channel_id"
+  | "upcoming_raider_role_id";
+type GuildSettingsPatchIdKey = keyof Omit<GuildSettingsPatch, "syncDiscordNamesToFf14">;
+
+function serializeGuildMemberCacheSnapshot(snapshot: GuildMemberCacheSnapshot): {
+  cache_age_seconds: number | null;
+  cached_member_count: number;
+  discord_guild_id: string;
+  discord_user_ids?: string[];
+  last_error: string | null;
+  last_full_refresh_at: string | null;
+  member_count: number | null;
+  next_refresh_after: string | null;
+  refresh_status: GuildMemberCacheSnapshot["refreshStatus"];
+  stale: boolean;
+  updated_at: string | null;
+} {
+  return {
+    cache_age_seconds: snapshot.cacheAgeSeconds,
+    cached_member_count: snapshot.cachedMemberCount,
+    discord_guild_id: snapshot.discordGuildId,
+    ...(snapshot.discordUserIds ? { discord_user_ids: snapshot.discordUserIds } : {}),
+    last_error: snapshot.lastError,
+    last_full_refresh_at: snapshot.lastFullRefreshAt,
+    member_count: snapshot.memberCount,
+    next_refresh_after: snapshot.nextRefreshAfter,
+    refresh_status: snapshot.refreshStatus,
+    stale: snapshot.stale,
+    updated_at: snapshot.updatedAt,
+  };
+}
+
+function setPatchId(
+  settings: GuildSettingsUpdatedSettings,
+  patch: GuildSettingsPatch,
+  sourceKey: GuildSettingsUpdatedIdKey,
+  targetKey: GuildSettingsPatchIdKey,
+): void {
+  if (hasOwn(settings, sourceKey)) {
+    const value = settings[sourceKey];
+
+    patch[targetKey] = typeof value === "string" ? value : null;
+  }
+}
+
+function recordGuildAutomationIssue(
+  options: GuildAutomationProcessorOptions,
+  input: {
+    action: string;
+    data: GuildRunCompletedData | GuildRunReminderData;
+    details?: unknown;
+    errorCode: string | undefined;
+    affectsHealth?: boolean | undefined;
+    message: string;
+    severity: "warn" | "error";
+  },
+): void {
+  recordFailureSafely(options.context.failureReporter, options.context.logger, {
+    action: input.action,
+    affectsHealth: input.affectsHealth ?? true,
+    details: input.details,
+    discordGuildId: input.data.discord_guild_id,
+    errorCode: input.errorCode,
+    eventType: input.data.type,
+    message: input.message,
+    runId: input.data.run_id,
+    severity: input.severity,
+    source: "guild_automation",
+  });
+}
+
+function shouldRunRoleSkippedReasonAffectHealth(
+  skippedReason: string | undefined,
+): boolean {
+  if (!skippedReason) {
+    return true;
+  }
+
+  return !nonHealthRunRoleSkippedReasons.has(skippedReason);
+}
+
+const nonHealthRunRoleSkippedReasons = new Set([
+  "bot_missing_manage_roles",
+  "template_role_not_below_bot",
+  "template_role_not_found",
+  "upcoming_raider_role_not_configured",
+]);
+
+async function assignUpcomingRaiderRole(
+  options: GuildAutomationProcessorOptions,
+  data: GuildRunReminderData,
+  settings: GuildSettings,
+): Promise<ActionResult> {
+  const discordUserIds = getRunReminderDiscordUserIds(data);
+  const baseResult = {
+    discordGuildId: data.discord_guild_id,
+    reminderType: data.reminder_type,
+    requestedUserCount: discordUserIds.length,
+    runId: data.run_id,
+    type: data.type,
+  };
+
+  if (!settings.upcomingRaiderRoleId) {
+    const result = {
+      ...baseResult,
+      assignedUserCount: 0,
+      failedUserCount: 0,
+      roleProcessingTimeMs: 0,
+      skippedReason: "upcoming_raider_role_not_configured",
+    };
+
+    await sendBotLogMessage(
+      options,
+      settings.botLogChannelId,
+      buildRunReminderRoleSyncLogMessage(data, result),
+    );
+
+    return result;
+  }
+
+  if (!options.context.guildRunRoles) {
+    const result = {
+      ...baseResult,
+      assignedUserCount: 0,
+      failedUserCount: 0,
+      roleProcessingTimeMs: 0,
+      skippedReason: "run_role_store_not_configured",
+      templateRoleId: settings.upcomingRaiderRoleId,
+    };
+
+    recordGuildAutomationIssue(options, {
+      action: "run_role_assign",
+      data,
+      errorCode: "run_role_store_not_configured",
+      message: "Run role database is not configured.",
+      severity: "error",
+    });
+    await sendBotLogMessage(
+      options,
+      settings.botLogChannelId,
+      buildRunReminderRoleSyncLogMessage(data, result),
+    );
+
+    return result;
+  }
+
+  if (discordUserIds.length === 0) {
+    const result = {
+      ...baseResult,
+      assignedUserCount: 0,
+      failedUserCount: 0,
+      roleProcessingTimeMs: 0,
+      skippedReason: "no_discord_users",
+      templateRoleId: settings.upcomingRaiderRoleId,
+    };
+
+    await sendBotLogMessage(
+      options,
+      settings.botLogChannelId,
+      buildRunReminderRoleSyncLogMessage(data, result),
+    );
+
+    return result;
+  }
+
+  const failures: { discordUserId: string; error: string }[] = [];
+  const startedAt = Date.now();
+  let assignedUserCount = 0;
+  let copiedOverwriteCount = 0;
+  let createdRunRole = false;
+  let runRoleId: string | undefined;
+  let runRoleName: string | undefined;
+  let templateRoleId: string | undefined = settings.upcomingRaiderRoleId;
+
+  try {
+    const guild = await fetchGuildRunReminderGuild(options.client, data.discord_guild_id);
+    const ensureRoleResult = await ensureRunRole(options, guild, data, settings);
+
+    if (!ensureRoleResult.role) {
+      const result = {
+        ...baseResult,
+        assignedUserCount: 0,
+        failedUserCount: ensureRoleResult.failures.length,
+        failures: ensureRoleResult.failures,
+        roleProcessingTimeMs: Date.now() - startedAt,
+        skippedReason: ensureRoleResult.skippedReason,
+        templateRoleId: settings.upcomingRaiderRoleId,
+      };
+
+      recordGuildAutomationIssue(options, {
+        affectsHealth: shouldRunRoleSkippedReasonAffectHealth(
+          ensureRoleResult.skippedReason,
+        ),
+        action: "run_role_assign",
+        data,
+        details: result,
+        errorCode: ensureRoleResult.skippedReason,
+        message: formatRunReminderSkippedReason(
+          ensureRoleResult.skippedReason ?? "run_role_assign_failed",
+        ),
+        severity: "warn",
+      });
+      await sendBotLogMessage(
+        options,
+        settings.botLogChannelId,
+        buildRunReminderRoleSyncLogMessage(data, result),
+      );
+
+      return result;
+    }
+
+    copiedOverwriteCount = ensureRoleResult.copiedOverwriteCount;
+    createdRunRole = ensureRoleResult.created;
+    failures.push(...ensureRoleResult.failures);
+    runRoleId = ensureRoleResult.role.id;
+    runRoleName = ensureRoleResult.role.name;
+    templateRoleId = ensureRoleResult.templateRole.id;
+
+    for (const discordUserId of discordUserIds) {
+      try {
+        const member = await guild.members.fetch(discordUserId);
+
+        if (!isRoleAssignableMember(member)) {
+          throw new Error(`Discord member ${discordUserId} cannot receive roles.`);
+        }
+
+        await member.roles.add(
+          ensureRoleResult.role.id,
+          `FullParty ${data.reminder_type} run role for run ${String(data.run_id)}`,
+        );
+        assignedUserCount += 1;
+      } catch (error) {
+        failures.push({
+          discordUserId,
+          error: getErrorMessage(error),
+        });
+      }
+    }
+  } catch (error) {
+    failures.push({
+      discordUserId: "*",
+      error: getErrorMessage(error),
+    });
+  }
+
+  const result = {
+    ...baseResult,
+    assignedUserCount,
+    copiedOverwriteCount,
+    createdRunRole,
+    failedUserCount: failures.length,
+    failures,
+    roleId: runRoleId,
+    roleName: runRoleName,
+    roleProcessingTimeMs: Date.now() - startedAt,
+    templateRoleId,
+  };
+
+  if (failures.length > 0) {
+    recordGuildAutomationIssue(options, {
+      affectsHealth: false,
+      action: "run_role_assign",
+      data,
+      details: result,
+      errorCode: "run_role_assign_partial_failure",
+      message: `${String(failures.length)} run role assignment issue(s) occurred.`,
+      severity: assignedUserCount > 0 ? "warn" : "error",
+    });
+  }
+
+  await sendBotLogMessage(
+    options,
+    settings.botLogChannelId,
+    buildRunReminderRoleSyncLogMessage(data, result),
+  );
+
+  return result;
+}
+
+type EnsureRunRoleResult = {
+  copiedOverwriteCount: number;
+  created: boolean;
+  failures: RunReminderFailure[];
+  role?: GuildRunRole;
+  roleName: string;
+  skippedReason?: string;
+  templateRole: GuildRunRole;
+};
+
+async function ensureRunRole(
+  options: GuildAutomationProcessorOptions,
+  guild: GuildRunReminderGuild,
+  data: GuildRunReminderData,
+  settings: GuildSettings,
+): Promise<EnsureRunRoleResult> {
+  const failures: RunReminderFailure[] = [];
+  const templateRoleId = settings.upcomingRaiderRoleId;
+
+  if (!templateRoleId) {
+    return {
+      copiedOverwriteCount: 0,
+      created: false,
+      failures,
+      roleName: "",
+      skippedReason: "upcoming_raider_role_not_configured",
+      templateRole: createUnknownRole(templateRoleId ?? "unknown"),
+    };
+  }
+
+  const templateRole = await fetchGuildRole(guild, templateRoleId);
+
+  if (!templateRole) {
+    return {
+      copiedOverwriteCount: 0,
+      created: false,
+      failures,
+      roleName: "",
+      skippedReason: "template_role_not_found",
+      templateRole: createUnknownRole(templateRoleId),
+    };
+  }
+
+  const preflightFailure = getRunRolePreflightFailure(guild, templateRole);
+
+  if (preflightFailure) {
+    return {
+      copiedOverwriteCount: 0,
+      created: false,
+      failures,
+      roleName: "",
+      skippedReason: preflightFailure,
+      templateRole,
+    };
+  }
+
+  const existingMapping = await options.context.guildRunRoles?.get(
+    data.discord_guild_id,
+    data.run_id,
+  );
+
+  if (existingMapping?.status === "active") {
+    const mappedRole = await fetchGuildRole(guild, existingMapping.roleId);
+
+    if (mappedRole) {
+      const copiedOverwriteCount = await copyTemplatePermissionOverwrites(
+        guild,
+        templateRole.id,
+        mappedRole.id,
+        data.run_id,
+        failures,
+      );
+
+      return {
+        copiedOverwriteCount,
+        created: false,
+        failures,
+        role: mappedRole,
+        roleName: mappedRole.name,
+        templateRole,
+      };
+    }
+  }
+
+  const roleName = createRunRoleName(data);
+  const role = await createRunRoleFromTemplate(
+    guild,
+    templateRole,
+    roleName,
+    data.run_id,
+  );
+  const copiedOverwriteCount = await copyTemplatePermissionOverwrites(
+    guild,
+    templateRole.id,
+    role.id,
+    data.run_id,
+    failures,
+  );
+  const now = new Date().toISOString();
+
+  await options.context.guildRunRoles?.upsert({
+    createdAt: existingMapping?.createdAt ?? now,
+    discordGuildId: data.discord_guild_id,
+    roleId: role.id,
+    roleName: role.name,
+    runId: data.run_id,
+    status: "active",
+    templateRoleId: templateRole.id,
+    updatedAt: now,
+  });
+
+  return {
+    copiedOverwriteCount,
+    created: true,
+    failures,
+    role,
+    roleName: role.name,
+    templateRole,
+  };
+}
+
+async function deleteRunRole(
+  options: GuildAutomationProcessorOptions,
+  data: GuildRunCompletedData,
+  settings: GuildSettings,
+): Promise<ActionResult> {
+  const baseResult = {
+    discordGuildId: data.discord_guild_id,
+    runId: data.run_id,
+    type: data.type,
+  };
+
+  if (!options.context.guildRunRoles) {
+    const result = {
+      ...baseResult,
+      deletedRoleCount: 0,
+      failedRoleCount: 0,
+      skippedReason: "run_role_store_not_configured",
+    };
+
+    recordGuildAutomationIssue(options, {
+      action: "run_role_cleanup",
+      data,
+      errorCode: "run_role_store_not_configured",
+      message: "Run role database is not configured.",
+      severity: "error",
+    });
+    await sendBotLogMessage(
+      options,
+      settings.botLogChannelId,
+      buildRunRoleCleanupLogMessage(data, result),
+    );
+
+    return result;
+  }
+
+  const mapping = await options.context.guildRunRoles.get(
+    data.discord_guild_id,
+    data.run_id,
+  );
+
+  if (!mapping || mapping.status === "deleted") {
+    const result = {
+      ...baseResult,
+      deletedRoleCount: 0,
+      failedRoleCount: 0,
+      skippedReason: "run_role_mapping_not_found",
+    };
+
+    await sendBotLogMessage(
+      options,
+      settings.botLogChannelId,
+      buildRunRoleCleanupLogMessage(data, result),
+    );
+
+    return result;
+  }
+
+  const failures: RunReminderFailure[] = [];
+  let deletedRoleCount = 0;
+
+  try {
+    const guild = await fetchGuildRunReminderGuild(options.client, data.discord_guild_id);
+    const role = await fetchGuildRole(guild, mapping.roleId);
+
+    if (role?.delete) {
+      await role.delete(`FullParty run ${String(data.run_id)} ended.`);
+      deletedRoleCount = 1;
+    } else if (role) {
+      failures.push({
+        discordUserId: "*",
+        error: `Discord role ${mapping.roleId} cannot be deleted by this bot.`,
+      });
+    }
+  } catch (error) {
+    failures.push({
+      discordUserId: "*",
+      error: getErrorMessage(error),
+    });
+  }
+
+  if (failures.length === 0) {
+    await options.context.guildRunRoles.markDeleted(data.discord_guild_id, data.run_id);
+  }
+
+  const result = {
+    ...baseResult,
+    deletedRoleCount,
+    failedRoleCount: failures.length,
+    failures,
+    roleId: mapping.roleId,
+    roleName: mapping.roleName,
+  };
+
+  if (failures.length > 0) {
+    recordGuildAutomationIssue(options, {
+      action: "run_role_cleanup",
+      data,
+      details: result,
+      errorCode: "run_role_cleanup_failed",
+      message: `${String(failures.length)} run role cleanup issue(s) occurred.`,
+      severity: "error",
+    });
+  }
+
+  await sendBotLogMessage(
+    options,
+    settings.botLogChannelId,
+    buildRunRoleCleanupLogMessage(data, result),
+  );
+
+  return result;
+}
+
+async function syncRunReminderNicknames(
+  options: GuildAutomationProcessorOptions,
+  data: GuildRunReminderData,
+  settings: GuildSettings,
+): Promise<ActionResult> {
+  const targets = getRunReminderNicknameTargets(data);
+  const baseResult = {
+    nicknameRequestedUserCount: targets.length,
+    nicknameSyncEnabled: settings.syncDiscordNamesToFf14,
+  };
+
+  if (!settings.syncDiscordNamesToFf14) {
+    return {
+      ...baseResult,
+      nicknameFailedUserCount: 0,
+      nicknameSkippedReason: "nickname_sync_disabled",
+      nicknameSkippedUserCount: targets.length,
+      nicknameSyncedUserCount: 0,
+    };
+  }
+
+  if (targets.length === 0) {
+    const result = {
+      ...baseResult,
+      nicknameFailedUserCount: 0,
+      nicknameProcessingTimeMs: 0,
+      nicknameSkippedReason: "no_nickname_targets",
+      nicknameSkippedUserCount: 0,
+      nicknameSyncedUserCount: 0,
+    };
+
+    await sendBotLogMessage(
+      options,
+      settings.botLogChannelId,
+      buildRunReminderNicknameSyncLogMessage(data, result),
+    );
+
+    return result;
+  }
+
+  const failures: { discordUserId: string; error: string }[] = [];
+  const startedAt = Date.now();
+  let skippedUserCount = 0;
+  let syncedUserCount = 0;
+
+  try {
+    const guild = await fetchGuildRunReminderGuild(options.client, data.discord_guild_id);
+
+    for (const target of targets) {
+      try {
+        const member = await guild.members.fetch(target.discordUserId);
+        const currentNickname = getCurrentNickname(member);
+
+        if (currentNickname === target.nickname) {
+          skippedUserCount += 1;
+          continue;
+        }
+
+        if (!isNicknameSyncableMember(member)) {
+          throw new Error(
+            `Discord member ${target.discordUserId} cannot have nicknames managed.`,
+          );
+        }
+
+        await member.setNickname(
+          target.nickname,
+          `FullParty ${data.reminder_type} nickname sync for run ${String(data.run_id)}`,
+        );
+        syncedUserCount += 1;
+      } catch (error) {
+        failures.push({
+          discordUserId: target.discordUserId,
+          error: getErrorMessage(error),
+        });
+      }
+    }
+  } catch (error) {
+    failures.push({
+      discordUserId: "*",
+      error: getErrorMessage(error),
+    });
+  }
+
+  const result = {
+    ...baseResult,
+    nicknameFailedUserCount: failures.length,
+    nicknameFailures: failures,
+    nicknameProcessingTimeMs: Date.now() - startedAt,
+    nicknameSkippedUserCount: skippedUserCount,
+    nicknameSyncedUserCount: syncedUserCount,
+  };
+
+  if (failures.length > 0) {
+    recordGuildAutomationIssue(options, {
+      affectsHealth: false,
+      action: "nickname_sync",
+      data,
+      details: result,
+      errorCode: "nickname_sync_partial_failure",
+      message: `${String(failures.length)} nickname sync issue(s) occurred.`,
+      severity: syncedUserCount > 0 || skippedUserCount > 0 ? "warn" : "error",
+    });
+  }
+
+  await sendBotLogMessage(
+    options,
+    settings.botLogChannelId,
+    buildRunReminderNicknameSyncLogMessage(data, result),
+  );
+
+  return result;
+}
+
+function getRunReminderDiscordUserIds(data: GuildRunReminderData): string[] {
+  return Array.from(
+    new Set([
+      ...data.discord_user_ids,
+      ...data.participants.flatMap((participant) =>
+        participant.discord_user_id ? [participant.discord_user_id] : [],
+      ),
+    ]),
+  );
+}
+
+type NicknameSyncTarget = {
+  discordUserId: string;
+  nickname: string;
+};
+
+function getRunReminderNicknameTargets(data: GuildRunReminderData): NicknameSyncTarget[] {
+  const targetsByUserId = new Map<string, NicknameSyncTarget>();
+
+  for (const participant of data.participants) {
+    if (!participant.discord_user_id || !participant.primary_character) {
+      continue;
+    }
+
+    const nickname = formatCharacterNickname(participant.primary_character);
+
+    if (!nickname) {
+      continue;
+    }
+
+    targetsByUserId.set(participant.discord_user_id, {
+      discordUserId: participant.discord_user_id,
+      nickname,
+    });
+  }
+
+  return [...targetsByUserId.values()];
+}
+
+function formatCharacterNickname(character: {
+  name: string;
+  world: string;
+}): string | undefined {
+  const name = character.name.trim();
+  const world = character.world.trim();
+
+  if (!name || !world) {
+    return undefined;
+  }
+
+  const suffix = ` [${world}]`;
+  const fullNickname = `${name}${suffix}`;
+
+  if (fullNickname.length <= discordNicknameLimit) {
+    return fullNickname;
+  }
+
+  const maxNameLength = discordNicknameLimit - suffix.length;
+
+  if (maxNameLength <= 0) {
+    return fullNickname.slice(0, discordNicknameLimit).trim();
+  }
+
+  return `${name.slice(0, maxNameLength).trim()}${suffix}`;
+}
+
+async function fetchGuildRole(
+  guild: GuildRunReminderGuild,
+  roleId: string,
+): Promise<GuildRunRole | undefined> {
+  const cachedRole = guild.roles?.cache?.get(roleId);
+
+  if (isGuildRunRole(cachedRole)) {
+    return cachedRole;
+  }
+
+  const fetchedRole = await guild.roles?.fetch?.(roleId);
+
+  return isGuildRunRole(fetchedRole) ? fetchedRole : undefined;
+}
+
+function getRunRolePreflightFailure(
+  guild: GuildRunReminderGuild,
+  templateRole: GuildRunRole,
+): string | undefined {
+  const botMember = guild.members.me;
+
+  if (
+    botMember?.permissions &&
+    !botMember.permissions.has(PermissionFlagsBits.ManageRoles)
+  ) {
+    return "bot_missing_manage_roles";
+  }
+
+  const botHighestRole = botMember?.roles?.highest;
+
+  if (
+    botHighestRole?.comparePositionTo &&
+    botHighestRole.comparePositionTo(templateRole) <= 0
+  ) {
+    return "template_role_not_below_bot";
+  }
+
+  return undefined;
+}
+
+async function createRunRoleFromTemplate(
+  guild: GuildRunReminderGuild,
+  templateRole: GuildRunRole,
+  roleName: string,
+  runId: number,
+): Promise<GuildRunRole> {
+  if (!guild.roles?.create) {
+    throw new Error("Discord guild roles cannot be managed by this bot.");
+  }
+
+  const createOptions: GuildRoleCreateOptions = {
+    name: roleName,
+    permissions: formatPermissionValue(templateRole.permissions),
+    reason: `FullParty temporary run role for run ${String(runId)}.`,
+  };
+
+  if (typeof templateRole.color === "number") {
+    createOptions.color = templateRole.color;
+  }
+
+  if (typeof templateRole.hoist === "boolean") {
+    createOptions.hoist = templateRole.hoist;
+  }
+
+  if (typeof templateRole.mentionable === "boolean") {
+    createOptions.mentionable = templateRole.mentionable;
+  }
+
+  const role = await guild.roles.create(createOptions);
+
+  if (!isGuildRunRole(role)) {
+    throw new Error("Discord did not return a manageable run role.");
+  }
+
+  return role;
+}
+
+async function copyTemplatePermissionOverwrites(
+  guild: GuildRunReminderGuild,
+  templateRoleId: string,
+  runRoleId: string,
+  runId: number,
+  failures: RunReminderFailure[],
+): Promise<number> {
+  const channels = await fetchGuildChannels(guild);
+  let copiedOverwriteCount = 0;
+
+  for (const channel of channels) {
+    if (!isPermissionOverwriteChannel(channel)) {
+      continue;
+    }
+
+    const templateOverwrite = getTemplatePermissionOverwrite(channel, templateRoleId);
+
+    if (!templateOverwrite) {
+      continue;
+    }
+
+    if (!channel.permissionOverwrites?.edit) {
+      failures.push({
+        discordUserId: "*",
+        error: `Channel ${channel.name ?? channel.id} permissions cannot be edited.`,
+      });
+      continue;
+    }
+
+    try {
+      await channel.permissionOverwrites.edit(
+        runRoleId,
+        {
+          allow: formatPermissionValue(templateOverwrite.allow),
+          deny: formatPermissionValue(templateOverwrite.deny),
+        },
+        `FullParty copied template role overwrites for run ${String(runId)}.`,
+      );
+      copiedOverwriteCount += 1;
+    } catch (error) {
+      failures.push({
+        discordUserId: "*",
+        error: `Unable to copy permissions for ${channel.name ?? channel.id}: ${getErrorMessage(error)}`,
+      });
+    }
+  }
+
+  return copiedOverwriteCount;
+}
+
+async function fetchGuildChannels(guild: GuildRunReminderGuild): Promise<unknown[]> {
+  const channels = await guild.channels?.fetch();
+
+  if (!channels) {
+    return [];
+  }
+
+  if (Array.isArray(channels)) {
+    return [...(channels as unknown[])];
+  }
+
+  if (channels instanceof Map) {
+    return [...(channels as Map<unknown, unknown>).values()];
+  }
+
+  if (hasValuesFunction(channels)) {
+    return [...channels.values()];
+  }
+
+  return [];
+}
+
+function hasValuesFunction(value: unknown): value is { values(): Iterable<unknown> } {
+  return isRecord(value) && typeof value.values === "function";
+}
+
+function getTemplatePermissionOverwrite(
+  channel: GuildPermissionOverwriteChannel,
+  templateRoleId: string,
+): GuildPermissionOverwrite | undefined {
+  const overwrite = channel.permissionOverwrites?.cache?.get(templateRoleId);
+
+  if (!isGuildPermissionOverwrite(overwrite)) {
+    return undefined;
+  }
+
+  return overwrite;
+}
+
+function createRunRoleName(data: GuildRunReminderData): string {
+  const activityName =
+    data.activity_title ?? data.activity ?? `Run #${String(data.run_id)}`;
+  const time = formatRunRoleStartTime(data.starts_at);
+  const roleName = `FullParty: ${activityName}${time ? ` ${time}` : ""}`;
+
+  return truncateText(roleName, 100);
+}
+
+function formatRunRoleStartTime(startsAt: string | undefined): string | undefined {
+  if (!startsAt) {
+    return undefined;
+  }
+
+  const date = new Date(startsAt);
+
+  if (Number.isNaN(date.getTime())) {
+    return undefined;
+  }
+
+  return `${date.getUTCHours().toString().padStart(2, "0")}:${date
+    .getUTCMinutes()
+    .toString()
+    .padStart(2, "0")} UTC`;
+}
+
+function formatPermissionValue(value: PermissionOverwriteValue | undefined): string {
+  const bitfield = value?.bitfield;
+
+  if (typeof bitfield === "bigint" || typeof bitfield === "number") {
+    return bitfield.toString();
+  }
+
+  if (typeof bitfield === "string") {
+    return bitfield;
+  }
+
+  if (typeof value?.toString === "function") {
+    return value.toString();
+  }
+
+  return "0";
+}
+
+function isGuildRunRole(value: unknown): value is GuildRunRole {
+  return (
+    isRecord(value) && typeof value.id === "string" && typeof value.name === "string"
+  );
+}
+
+function isGuildPermissionOverwrite(value: unknown): value is GuildPermissionOverwrite {
+  return isRecord(value) && typeof value.id === "string";
+}
+
+function isPermissionOverwriteChannel(
+  value: unknown,
+): value is GuildPermissionOverwriteChannel {
+  return isRecord(value) && typeof value.id === "string";
+}
+
+function createUnknownRole(roleId: string): GuildRunRole {
+  return {
+    id: roleId,
+    name: roleId,
+  };
+}
+
+async function fetchGuildRunReminderGuild(
+  client: Client,
+  guildId: string,
+): Promise<GuildRunReminderGuild> {
+  const guild = await client.guilds.fetch(guildId);
+
+  if (!isGuildRunReminderGuild(guild)) {
+    throw new Error(`Discord guild ${guildId} cannot be used for run reminder sync.`);
+  }
+
+  return guild;
+}
+
+function isGuildRunReminderGuild(value: unknown): value is GuildRunReminderGuild {
+  return (
+    isRecord(value) &&
+    isRecord(value.members) &&
+    typeof value.members.fetch === "function"
+  );
+}
+
+function isRoleAssignableMember(
+  value: GuildRunReminderMember,
+): value is GuildRunReminderMember & {
+  roles: { add(roleId: string, reason?: string): Promise<unknown> };
+} {
+  return isRecord(value.roles) && typeof value.roles.add === "function";
+}
+
+function isNicknameSyncableMember(
+  value: GuildRunReminderMember,
+): value is GuildRunReminderMember & {
+  setNickname(nickname: string, reason?: string): Promise<unknown>;
+} {
+  return typeof value.setNickname === "function";
+}
+
+function getCurrentNickname(member: GuildRunReminderMember): string | undefined {
+  return member.nickname ?? member.displayName;
+}
+
+async function sendBotLogMessage(
+  options: GuildAutomationProcessorOptions,
+  channelId: string | undefined,
+  message: MessageCreateOptions,
+): Promise<void> {
+  if (!channelId) {
+    return;
+  }
+
+  try {
+    const channel = await options.client.channels.fetch(channelId);
+
+    if (isSendableChannel(channel)) {
+      await channel.send(message);
+    }
+  } catch (error) {
+    options.context.logger.warn("Unable to send bot-log message.", {
+      channelId,
+      error,
+    });
+  }
+}
+
+function isSendableChannel(value: unknown): value is SendableChannel {
+  return isRecord(value) && typeof value.send === "function";
+}
+
+function buildRunReminderRoleSyncLogMessage(
+  data: GuildRunReminderData,
+  result: ActionResult,
+): MessageCreateOptions {
+  const assignedUserCount =
+    typeof result.assignedUserCount === "number" ? result.assignedUserCount : 0;
+  const failedUserCount =
+    typeof result.failedUserCount === "number" ? result.failedUserCount : 0;
+  const requestedUserCount =
+    typeof result.requestedUserCount === "number" ? result.requestedUserCount : 0;
+  const copiedOverwriteCount =
+    typeof result.copiedOverwriteCount === "number" ? result.copiedOverwriteCount : 0;
+  const createdRunRole = result.createdRunRole === true;
+  const roleId = getResultString(result, "roleId");
+  const roleName = getResultString(result, "roleName");
+  const skippedReason = getResultString(result, "skippedReason");
+  const templateRoleId = getResultString(result, "templateRoleId");
+  const failures = getResultFailures(result, "failures");
+  const status = getRoleSyncStatus({
+    assignedUserCount,
+    failedUserCount,
+    requestedUserCount,
+    skippedReason,
+  });
+  const successfulAssignments = assignedUserCount;
+  const fields: APIEmbedField[] = [
+    {
+      inline: true,
+      name: "✅ Successful Assignments",
+      value: `${String(successfulAssignments)} ${formatPlural(successfulAssignments, "user")}\nassigned`,
+    },
+    {
+      inline: true,
+      name: "❌ Failed Assignments",
+      value: `${String(failedUserCount)} ${formatPlural(failedUserCount, "user")}\nfailed`,
+    },
+    {
+      inline: true,
+      name: "📈 Success Rate",
+      value: `${formatPercent(successfulAssignments, requestedUserCount)}\nassignment rate`,
+    },
+    {
+      inline: true,
+      name: "🛡️ Run Role",
+      value: roleId
+        ? [`<@&${roleId}>`, roleName ? `\`${roleName}\`` : undefined]
+            .filter((value): value is string => Boolean(value))
+            .join("\n")
+        : "_Not created_",
+    },
+    {
+      inline: true,
+      name: "📋 Template",
+      value: templateRoleId ? `<@&${templateRoleId}>` : "_Not configured_",
+    },
+    {
+      inline: true,
+      name: "🔐 Channel Access",
+      value: `${String(copiedOverwriteCount)} ${formatPlural(copiedOverwriteCount, "overwrite")}\ncopied`,
+    },
+    {
+      inline: true,
+      name: "✨ Role State",
+      value: skippedReason
+        ? "Not created"
+        : createdRunRole
+          ? "Created for this run"
+          : "Reused for this run",
+    },
+  ];
+
+  if (skippedReason) {
+    fields.push({
+      inline: false,
+      name: "ℹ️ Note",
+      value: formatRunReminderSkippedReason(skippedReason),
+    });
+  } else if (failedUserCount > 0) {
+    fields.push({
+      inline: false,
+      name: "ℹ️ Note",
+      value:
+        "Some role assignments failed. Common causes: user left the server, missing bot permissions, role hierarchy, or Discord API limits.",
+    });
+  }
+
+  const failureField = createFailuresField(failures);
+
+  if (failureField) {
+    fields.push(failureField);
+  }
+
+  return createBotLogEmbedMessage({
+    color: status.color,
+    description: createRunReminderDescription(data, requestedUserCount, skippedReason),
+    fields,
+    title: `🛡️ Role Assignment - ${status.titleSuffix}`,
+  });
+}
+
+function buildRunReminderNicknameSyncLogMessage(
+  data: GuildRunReminderData,
+  result: ActionResult,
+): MessageCreateOptions {
+  const failedUserCount =
+    typeof result.nicknameFailedUserCount === "number"
+      ? result.nicknameFailedUserCount
+      : 0;
+  const requestedUserCount =
+    typeof result.nicknameRequestedUserCount === "number"
+      ? result.nicknameRequestedUserCount
+      : 0;
+  const skippedUserCount =
+    typeof result.nicknameSkippedUserCount === "number"
+      ? result.nicknameSkippedUserCount
+      : 0;
+  const syncedUserCount =
+    typeof result.nicknameSyncedUserCount === "number"
+      ? result.nicknameSyncedUserCount
+      : 0;
+  const skippedReason = getResultString(result, "nicknameSkippedReason");
+  const failures = getResultFailures(result, "nicknameFailures");
+  const status = getNicknameSyncStatus({
+    failedUserCount,
+    requestedUserCount,
+    skippedReason,
+    skippedUserCount,
+    syncedUserCount,
+  });
+  const successfulUpdates = syncedUserCount + skippedUserCount;
+  const fields: APIEmbedField[] = [
+    {
+      inline: true,
+      name: "✅ Successful Updates",
+      value: `${String(syncedUserCount)} ${formatPlural(syncedUserCount, "user")}\nupdated`,
+    },
+    {
+      inline: true,
+      name: "☑️ Already Correct",
+      value: `${String(skippedUserCount)} ${formatPlural(skippedUserCount, "user")}\nunchanged`,
+    },
+    {
+      inline: true,
+      name: "❌ Failed Updates",
+      value: `${String(failedUserCount)} ${formatPlural(failedUserCount, "user")}\nfailed`,
+    },
+    {
+      inline: true,
+      name: "📈 Success Rate",
+      value: `${formatPercent(successfulUpdates, requestedUserCount)}\nhandled`,
+    },
+    {
+      inline: true,
+      name: "🔄 Update Mode",
+      value: "Primary character\nName Surname [World]",
+    },
+  ];
+
+  if (skippedReason) {
+    fields.push({
+      inline: false,
+      name: "ℹ️ Note",
+      value: formatRunReminderSkippedReason(skippedReason),
+    });
+  } else if (failedUserCount > 0) {
+    fields.push({
+      inline: false,
+      name: "ℹ️ Note",
+      value:
+        "Some nickname updates failed. Common causes: user left the server, missing Manage Nicknames permission, role hierarchy, or Discord API limits.",
+    });
+  }
+
+  const failureField = createFailuresField(failures);
+
+  if (failureField) {
+    fields.push(failureField);
+  }
+
+  return createBotLogEmbedMessage({
+    color: status.color,
+    description: createRunReminderDescription(data, requestedUserCount, skippedReason),
+    fields,
+    title: `🏷️ Nickname Synchronization - ${status.titleSuffix}`,
+  });
+}
+
+function buildRunRoleCleanupLogMessage(
+  data: GuildRunCompletedData,
+  result: ActionResult,
+): MessageCreateOptions {
+  const deletedRoleCount =
+    typeof result.deletedRoleCount === "number" ? result.deletedRoleCount : 0;
+  const failedRoleCount =
+    typeof result.failedRoleCount === "number" ? result.failedRoleCount : 0;
+  const roleId = getResultString(result, "roleId");
+  const roleName = getResultString(result, "roleName");
+  const skippedReason = getResultString(result, "skippedReason");
+  const failures = getResultFailures(result, "failures");
+  const status = getCleanupStatus({ deletedRoleCount, failedRoleCount, skippedReason });
+  const fields: APIEmbedField[] = [
+    {
+      inline: true,
+      name: "🧹 Deleted Roles",
+      value: `${String(deletedRoleCount)} ${formatPlural(deletedRoleCount, "role")}\ndeleted`,
+    },
+    {
+      inline: true,
+      name: "❌ Failed Deletes",
+      value: `${String(failedRoleCount)} ${formatPlural(failedRoleCount, "role")}\nfailed`,
+    },
+    {
+      inline: true,
+      name: "🛡️ Run Role",
+      value: roleId
+        ? [`<@&${roleId}>`, roleName ? `\`${roleName}\`` : undefined]
+            .filter((value): value is string => Boolean(value))
+            .join("\n")
+        : "_No active role_",
+    },
+  ];
+
+  if (skippedReason) {
+    fields.push({
+      inline: false,
+      name: "ℹ️ Note",
+      value: formatRunReminderSkippedReason(skippedReason),
+    });
+  }
+
+  const failureField = createFailuresField(failures);
+
+  if (failureField) {
+    fields.push(failureField);
+  }
+
+  return createBotLogEmbedMessage({
+    color: status.color,
+    description: createRunCompletedDescription(data),
+    fields,
+    title: `🧹 Run Role Cleanup - ${status.titleSuffix}`,
+  });
+}
+
+type SyncStatus = {
+  color: number;
+  titleSuffix: string;
+};
+
+type RoleSyncStatusInput = {
+  assignedUserCount: number;
+  failedUserCount: number;
+  requestedUserCount: number;
+  skippedReason: string | undefined;
+};
+
+type NicknameSyncStatusInput = {
+  failedUserCount: number;
+  requestedUserCount: number;
+  skippedReason: string | undefined;
+  skippedUserCount: number;
+  syncedUserCount: number;
+};
+
+type CleanupStatusInput = {
+  deletedRoleCount: number;
+  failedRoleCount: number;
+  skippedReason: string | undefined;
+};
+
+type RunReminderFailure = {
+  discordUserId: string;
+  error: string;
+};
+
+function getRoleSyncStatus(input: RoleSyncStatusInput): SyncStatus {
+  if (input.skippedReason) {
+    return { color: 0x64748b, titleSuffix: "Skipped" };
+  }
+
+  if (input.failedUserCount > 0 && input.assignedUserCount === 0) {
+    return { color: 0xef4444, titleSuffix: "Failed" };
+  }
+
+  if (input.failedUserCount > 0) {
+    return { color: 0xf59e0b, titleSuffix: "Partial" };
+  }
+
+  return { color: 0x22c55e, titleSuffix: "Complete" };
+}
+
+function getNicknameSyncStatus(input: NicknameSyncStatusInput): SyncStatus {
+  if (input.skippedReason) {
+    return { color: 0x64748b, titleSuffix: "Skipped" };
+  }
+
+  if (input.failedUserCount > 0 && input.syncedUserCount + input.skippedUserCount === 0) {
+    return { color: 0xef4444, titleSuffix: "Failed" };
+  }
+
+  if (input.failedUserCount > 0) {
+    return { color: 0xf59e0b, titleSuffix: "Partial" };
+  }
+
+  return { color: 0x22c55e, titleSuffix: "Complete" };
+}
+
+function getCleanupStatus(input: CleanupStatusInput): SyncStatus {
+  if (input.skippedReason) {
+    return { color: 0x64748b, titleSuffix: "Skipped" };
+  }
+
+  if (input.failedRoleCount > 0) {
+    return { color: 0xef4444, titleSuffix: "Failed" };
+  }
+
+  return { color: 0x22c55e, titleSuffix: "Complete" };
+}
+
+function createBotLogEmbedMessage(options: {
+  color: number;
+  description: string;
+  fields: APIEmbedField[];
+  title: string;
+}): MessageCreateOptions {
+  const embed: APIEmbed = {
+    color: options.color,
+    description: options.description,
+    fields: options.fields,
+    footer: {
+      text: "FullParty • Guild Automation",
+    },
+    title: options.title,
+  };
+
+  return {
+    allowedMentions: {
+      parse: [],
+    },
+    embeds: [embed],
+  };
+}
+
+function createRunReminderDescription(
+  data: GuildRunReminderData,
+  requestedUserCount: number,
+  skippedReason?: string,
+): string {
+  const action = skippedReason ? "Checked" : "Processed";
+  const runLine = [
+    `**Run #${String(data.run_id)}**`,
+    formatReminderType(data.reminder_type),
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join(" • ");
+
+  return [
+    runLine,
+    formatRunStartsLine(data.starts_at),
+    data.group_slug ? `**Group:** ${data.group_slug}` : undefined,
+    `${action} **${String(requestedUserCount)}** ${formatPlural(requestedUserCount, "user")}.`,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join("\n");
+}
+
+function formatRunStartsLine(startsAt: string | undefined): string | undefined {
+  const timestamp = formatDiscordDateTime(startsAt);
+
+  return timestamp ? `**Starts:** ${timestamp}` : undefined;
+}
+
+function createRunCompletedDescription(data: GuildRunCompletedData): string {
+  const status = data.type === "runs.cancelled" ? "Cancelled" : "Completed";
+  const icon = data.type === "runs.cancelled" ? "🚫" : "✅";
+
+  return [
+    `**Run #${String(data.run_id)}** • ${icon} **${status}**`,
+    data.group_slug ? `**Group:** ${data.group_slug}` : undefined,
+    "Cleaning up the temporary FullParty run role.",
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join("\n");
+}
+
+function createFailuresField(failures: RunReminderFailure[]): APIEmbedField | undefined {
+  if (failures.length === 0) {
+    return undefined;
+  }
+
+  const visibleFailures = failures.slice(0, 5);
+  const hiddenFailureCount = failures.length - visibleFailures.length;
+  const lines = visibleFailures.map(
+    (failure) => `\`${failure.discordUserId}\`: ${truncateText(failure.error, 120)}`,
+  );
+
+  if (hiddenFailureCount > 0) {
+    lines.push(`...and ${String(hiddenFailureCount)} more failure(s).`);
+  }
+
+  return {
+    inline: false,
+    name: "Failure Details",
+    value: lines.join("\n"),
+  };
+}
+
+function getResultFailures(result: ActionResult, key: string): RunReminderFailure[] {
+  const failures = result[key];
+
+  if (!Array.isArray(failures)) {
+    return [];
+  }
+
+  return failures.flatMap((failure) => {
+    if (!isRecord(failure)) {
+      return [];
+    }
+
+    const discordUserId = failure.discordUserId;
+    const error = failure.error;
+
+    if (typeof discordUserId !== "string" || typeof error !== "string") {
+      return [];
+    }
+
+    return [{ discordUserId, error }];
+  });
+}
+
+function getResultString(result: ActionResult, key: string): string | undefined {
+  const value = result[key];
+
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function formatRunReminderSkippedReason(reason: string): string {
+  const knownReasons: Record<string, string> = {
+    bot_missing_manage_roles:
+      "The bot needs the Manage Roles permission to create, delete, and assign run roles.",
+    nickname_sync_disabled: "Nickname sync is disabled in `/setup`.",
+    no_discord_users: "FullParty did not include any Discord users for this run.",
+    no_nickname_targets:
+      "No participants included both a Discord user and primary character to sync.",
+    run_role_mapping_not_found:
+      "No active temporary role is mapped for this run. It may have already been cleaned up.",
+    run_role_store_not_configured:
+      "The bot's run-role database is not configured, so temporary run roles cannot be tracked safely.",
+    template_role_not_below_bot:
+      "The template role must be below the bot's highest role in Discord role settings.",
+    template_role_not_found:
+      "The configured template role was not found. Re-run `/setup` and choose a valid role.",
+    upcoming_raider_role_not_configured:
+      "Run role template is not configured in `/setup`.",
+  };
+
+  return knownReasons[reason] ?? reason.replaceAll("_", " ");
+}
+
+function formatReminderType(reminderType: GuildRunReminderData["reminder_type"]): string {
+  return reminderType === "starting_now" ? "🚨 **Starting Now**" : "🕒 **Upcoming**";
+}
+
+function formatPercent(successfulCount: number, requestedCount: number): string {
+  if (requestedCount === 0) {
+    return "0.0%";
+  }
+
+  return `${((successfulCount / requestedCount) * 100).toFixed(1)}%`;
+}
+
+function formatPlural(count: number, singular: string): string {
+  return count === 1 ? singular : `${singular}s`;
+}
+
+function truncateText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  return `${value.slice(0, Math.max(0, maxLength - 3))}...`;
 }
 
 function handleHealthcheckRequest(
@@ -399,7 +2301,19 @@ function isSendableUser(value: unknown): value is SendableUser {
   return isRecord(value) && typeof value.send === "function";
 }
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function getEventDataType(event: FullpartyEvent): string | undefined {
+  if (event.event === "discord.guild.run_cancelled") {
+    return "runs.cancelled";
+  }
+
+  if (event.event === "discord.guild.run_completed" && !isRecord(event.data)) {
+    return "runs.completed";
+  }
+
   if (!isRecord(event.data)) {
     return undefined;
   }
@@ -408,6 +2322,10 @@ function getEventDataType(event: FullpartyEvent): string | undefined {
 
   if (dataType) {
     return dataType;
+  }
+
+  if (event.event === "discord.guild.run_completed") {
+    return "runs.completed";
   }
 
   const notification = event.data.notification;
@@ -436,6 +2354,18 @@ function getEventErrorCode(error: unknown): string {
   }
 
   return "internal_server_error";
+}
+
+function getFailureSeverity(error: unknown): "warn" | "error" {
+  if (error instanceof HttpError && error.statusCode < 500) {
+    return "warn";
+  }
+
+  if (error instanceof z.ZodError) {
+    return "warn";
+  }
+
+  return "error";
 }
 
 function getRequestId(event: FullpartyEvent): string | undefined {
@@ -539,6 +2469,13 @@ function getRequestHost(request: IncomingMessage): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function hasOwn<TObject extends object, TKey extends PropertyKey>(
+  value: TObject,
+  key: TKey,
+): value is TObject & Record<TKey, unknown> {
+  return Object.prototype.hasOwnProperty.call(value, key);
 }
 
 function formatAddress(address: AddressInfo | null): string {

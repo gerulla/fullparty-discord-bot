@@ -1,3 +1,4 @@
+import { formatDiscordDateTime } from "../lib/discordTimestamps.js";
 import { humanizeIdentifier } from "./notificationText.js";
 import type { NotificationCopy, NotificationDeliveryData } from "./types.js";
 
@@ -284,6 +285,22 @@ const formatterByType: Record<string, NotificationCopyFormatter> = {
         buildRunFields(details),
       ),
       title: "Run starting soon",
+    };
+  },
+  "runs.starting_now": (data, copy) => {
+    const details = getRunDetails(data);
+
+    if (!hasRunDetails(details)) {
+      return copy;
+    }
+
+    return {
+      ...copy,
+      description: joinDescriptionParts(
+        buildRunSummary(details, "is starting now"),
+        buildRunFields(details),
+      ),
+      title: "Run starting now",
     };
   },
   "user.social_account.linked": (data, copy) => {
@@ -634,7 +651,7 @@ function getRunDetails(data: NotificationDeliveryData): RunDetails {
   const group =
     getDisplayStringValue(data.notification.params.group) ??
     getPayloadDisplayStringValue(data.notification.payload, "group_slug");
-  const startsAt = formatUtcDateTime(
+  const startsAt = formatDiscordDateTime(
     getPayloadRawStringValue(data.notification.payload, "starts_at"),
   );
   const status = getPayloadStringValue(data.notification.payload, "status");
@@ -732,8 +749,10 @@ function getRunCompletionDetails(payload: unknown): RunCompletionDetails | undef
     return undefined;
   }
 
-  const completedAt = formatUtcDateTime(getRecordStringValue(completion, "completed_at"));
-  const progressRecordedAt = formatUtcDateTime(
+  const completedAt = formatDiscordDateTime(
+    getRecordStringValue(completion, "completed_at"),
+  );
+  const progressRecordedAt = formatDiscordDateTime(
     getRecordStringValue(completion, "progress_recorded_at"),
   );
   const entryMode = getStringValue(
@@ -849,31 +868,6 @@ function getRunMilestoneDetails(milestone: Record<string, unknown>): string[] {
   return details;
 }
 
-function formatUtcDateTime(value: string | undefined): string | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return undefined;
-  }
-
-  const month = utcMonthNames[date.getUTCMonth()];
-
-  if (!month) {
-    return undefined;
-  }
-
-  const day = String(date.getUTCDate()).padStart(2, "0");
-  const year = String(date.getUTCFullYear());
-  const hour = String(date.getUTCHours()).padStart(2, "0");
-  const minute = String(date.getUTCMinutes()).padStart(2, "0");
-
-  return `${day} ${month} ${year}, ${hour}:${minute} UTC`;
-}
-
 function formatPercent(value: number | undefined): string | undefined {
   if (value === undefined) {
     return undefined;
@@ -887,21 +881,6 @@ function formatNumber(value: number): string {
     ? String(value)
     : value.toFixed(2).replace(/0+$/u, "").replace(/\.$/u, "");
 }
-
-const utcMonthNames = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec",
-];
 
 function getPayloadDisplayStringValue(payload: unknown, key: string): string | undefined {
   if (typeof payload !== "object" || payload === null || !(key in payload)) {

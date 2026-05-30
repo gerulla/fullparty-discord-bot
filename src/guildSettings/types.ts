@@ -1,5 +1,6 @@
 export type GuildSettings = {
   botLogChannelId?: string;
+  botModeratorRoleId?: string;
   guildId: string;
   runAnnouncementChannelId?: string;
   syncDiscordNamesToFf14: boolean;
@@ -7,15 +8,13 @@ export type GuildSettings = {
   updatedAt?: string;
 };
 
-export type GuildSettingsPatch = Partial<
-  Pick<
-    GuildSettings,
-    | "botLogChannelId"
-    | "runAnnouncementChannelId"
-    | "syncDiscordNamesToFf14"
-    | "upcomingRaiderRoleId"
-  >
->;
+export type GuildSettingsPatch = {
+  botLogChannelId?: string | null;
+  botModeratorRoleId?: string | null;
+  runAnnouncementChannelId?: string | null;
+  syncDiscordNamesToFf14?: boolean;
+  upcomingRaiderRoleId?: string | null;
+};
 
 export function createDefaultGuildSettings(guildId: string): GuildSettings {
   return {

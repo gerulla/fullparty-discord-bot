@@ -14,7 +14,7 @@ export type FullpartyHealthResponse = {
 export type FullpartyDiscordUserApplicationsResponse = unknown;
 export type FullpartyDiscordGuildLinkRequest = {
   discordGuildId: string;
-  iconUrl?: string;
+  iconUrl?: string | null;
   name: string;
   permissions: string;
   token: string;
@@ -101,7 +101,7 @@ export class FullpartyApiClient {
       {
         body: JSON.stringify({
           discord_guild_id: request.discordGuildId,
-          ...(request.iconUrl ? { icon_url: request.iconUrl } : {}),
+          icon_url: request.iconUrl ?? null,
           name: request.name,
           permissions: request.permissions,
           token: request.token,

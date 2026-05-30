@@ -73,6 +73,8 @@ DATABASE_PATH=data/fullparty-discord-bot.sqlite
 HTTP_HOST=127.0.0.1
 HTTP_PORT=3000
 LOG_LEVEL=info
+
+PAYLOAD_COMMAND_ALLOWED_USER_ID=your_discord_user_id
 ```
 
 Important notes:
@@ -81,6 +83,7 @@ Important notes:
 - Rotate the Discord bot token before production if it was ever pasted somewhere unsafe.
 - `FULLPARTY_WEBHOOK_SIGNING_SECRET` must match the secret FullParty uses to sign outbound events.
 - `FULLPARTY_API_TOKEN` is used when the bot calls the FullParty API.
+- `PAYLOAD_COMMAND_ALLOWED_USER_ID` controls who can use `/payload`. Leave it empty to deny `/payload` to everyone.
 
 Create the SQLite data folder:
 

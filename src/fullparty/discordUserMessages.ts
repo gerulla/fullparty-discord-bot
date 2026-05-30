@@ -1,5 +1,6 @@
 import type { APIEmbed, APIEmbedField, InteractionEditReplyOptions } from "discord.js";
 
+import { formatDiscordDateTime } from "../lib/discordTimestamps.js";
 import {
   humanizeIdentifier,
   resolveFullpartyActionUrl,
@@ -88,8 +89,8 @@ function createApplicationEmbed(
     fields: createFields([
       ["Character", getCharacterFieldValue(application)],
       ["Status", status ? humanizeIdentifier(status) : undefined],
-      ["Starts", formatUtcDateTime(getStartsAt(application))],
-      ["Submitted", formatUtcDateTime(getSubmittedAt(application))],
+      ["Starts", formatDiscordDateTime(getStartsAt(application))],
+      ["Submitted", formatDiscordDateTime(getSubmittedAt(application))],
       ["Datacenter", getDatacenter(application)],
       ["Style", humanizeOptionalIdentifier(getRunStyle(application))],
       ["Intensity", humanizeOptionalIdentifier(getIntensity(application))],
@@ -121,7 +122,7 @@ function createRunEmbed(
     color: 0xf59e0b,
     description: truncateForDiscord(description, embedDescriptionLimit),
     fields: createFields([
-      ["Starts", formatUtcDateTime(getStartsAt(run))],
+      ["Starts", formatDiscordDateTime(getStartsAt(run))],
       ["Status", status ? humanizeIdentifier(status) : undefined],
       ["Character", getCharacterFieldValue(run)],
       ["Party", getPartyDisplayName(run)],
@@ -421,46 +422,6 @@ function getStatusColor(status: string | undefined, fallback: number): number {
 
   return applicationStatusColors[status.toLowerCase()] ?? fallback;
 }
-
-function formatUtcDateTime(value: string | undefined): string | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return undefined;
-  }
-
-  const month = utcMonthNames[date.getUTCMonth()];
-
-  if (!month) {
-    return undefined;
-  }
-
-  const day = String(date.getUTCDate()).padStart(2, "0");
-  const year = String(date.getUTCFullYear());
-  const hour = String(date.getUTCHours()).padStart(2, "0");
-  const minute = String(date.getUTCMinutes()).padStart(2, "0");
-
-  return `${day} ${month} ${year}, ${hour}:${minute} UTC`;
-}
-
-const utcMonthNames = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec",
-];
 
 function getDisplayStringValue(value: unknown): string | undefined {
   if (typeof value !== "string") {

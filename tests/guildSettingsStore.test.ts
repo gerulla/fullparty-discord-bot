@@ -39,12 +39,14 @@ describe("SqliteGuildSettingsStore", () => {
     await expect(
       store.update("guild-id", {
         botLogChannelId: "bot-log-channel-id",
+        botModeratorRoleId: "bot-moderator-role-id",
         runAnnouncementChannelId: "run-announcement-channel-id",
         syncDiscordNamesToFf14: true,
         upcomingRaiderRoleId: "upcoming-raider-role-id",
       }),
     ).resolves.toMatchObject({
       botLogChannelId: "bot-log-channel-id",
+      botModeratorRoleId: "bot-moderator-role-id",
       guildId: "guild-id",
       runAnnouncementChannelId: "run-announcement-channel-id",
       syncDiscordNamesToFf14: true,
@@ -60,6 +62,7 @@ describe("SqliteGuildSettingsStore", () => {
         `
           SELECT
             bot_log_channel_id,
+            bot_moderator_role_id,
             guild_id,
             run_announcement_channel_id,
             sync_discord_names_to_ff14,
@@ -74,6 +77,7 @@ describe("SqliteGuildSettingsStore", () => {
 
     expect(storedSettings).toMatchObject({
       bot_log_channel_id: "bot-log-channel-id",
+      bot_moderator_role_id: "bot-moderator-role-id",
       guild_id: "guild-id",
       run_announcement_channel_id: "run-announcement-channel-id",
       sync_discord_names_to_ff14: 1,
