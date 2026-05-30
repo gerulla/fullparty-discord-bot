@@ -323,12 +323,12 @@ This repo includes a GitHub Actions workflow at:
 .github/workflows/deploy.yml
 ```
 
-On every push to `main`, it will:
+On every push to `master`, it will:
 
 1. Install dependencies.
 2. Run format check, lint, tests, and build.
 3. SSH into the VPS.
-4. Pull `origin/main`.
+4. Pull `origin/master`.
 5. Run `npm ci`.
 6. Run `npm run build`.
 7. Restart `fullparty-discord-bot`.
@@ -478,13 +478,38 @@ bash scripts/deploy-production.sh
 
 ### If Slash Commands Changed
 
-The auto deploy does not currently run:
+The normal auto deploy does not run:
 
 ```bash
 npm run commands:deploy:global
 ```
 
-Run that manually when slash command definitions change. This avoids accidentally touching Discord command registration on every code deploy.
+This avoids accidentally touching Discord command registration on every code deploy.
+
+To deploy slash command changes from GitHub, use the manual workflow:
+
+```text
+GitHub repo -> Actions -> Deploy Discord Commands -> Run workflow
+```
+
+That workflow lives at:
+
+```text
+.github/workflows/deploy-commands.yml
+```
+
+It needs these repository secrets:
+
+```text
+DISCORD_CLIENT_ID
+DISCORD_TOKEN
+```
+
+You can still run the command registration manually on the VPS:
+
+```bash
+npm run commands:deploy:global
+```
 
 ## 13. Troubleshooting
 

@@ -3,7 +3,7 @@ name: Deploy
 on:
   push:
     branches:
-      - main
+      - master
   workflow_dispatch:
 
 concurrency:
@@ -68,6 +68,6 @@ jobs:
             set -euo pipefail
             cd /opt/fullparty-discord-bot
             git fetch --prune origin
-            git checkout -B main origin/main
+            git checkout -B master origin/master
             bash scripts/deploy-production.sh
           '

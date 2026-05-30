@@ -1,0 +1,56 @@
+name: Deploy Discord Commands
+
+on:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+  deploy-commands:
+    name: Register Global Commands
+    needs: verify
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Register global Discord commands
+        env:
+          DATABASE_PATH: data/fullparty-discord-bot.sqlite
+          DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}
+          DISCORD_COMMAND_REGISTER_SCOPE: global
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+          FULLPARTY_API_BASE_URL: https://fullparty.gg/api
+          FULLPARTY_WEBHOOK_SIGNING_SECRET: unused-for-command-registration
+        run: npm run commands:deploy:global

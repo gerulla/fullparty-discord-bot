@@ -2,7 +2,7 @@
 set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/fullparty-discord-bot}"
-DEPLOY_BRANCH="${DEPLOY_BRANCH:-main}"
+DEPLOY_BRANCH="${DEPLOY_BRANCH:-master}"
 SERVICE_NAME="${SERVICE_NAME:-fullparty-discord-bot}"
 
 cd "$APP_DIR"
