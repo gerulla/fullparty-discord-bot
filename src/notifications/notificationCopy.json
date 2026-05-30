@@ -1,0 +1,172 @@
+{
+  "fallback": {
+    "title": "FullParty notification",
+    "description": "You have a new FullParty notification.",
+    "actionLabel": "Open in FullParty",
+    "tone": "info"
+  },
+  "types": {
+    "user.social_account.linked": {
+      "title": "Social account linked",
+      "description": "A social account was linked to your FullParty account.",
+      "actionLabel": "Review account connections",
+      "tone": "success"
+    },
+    "user.social_account.unlinked": {
+      "title": "Social account removed",
+      "description": "A social account was removed from your FullParty account.",
+      "actionLabel": "Review account connections",
+      "tone": "neutral"
+    },
+    "user.settings.username_updated": {
+      "title": "FullParty account updated",
+      "description": "Your FullParty account settings were updated.",
+      "actionLabel": "Open account settings",
+      "tone": "info"
+    },
+    "applications.new_for_review": {
+      "title": "Application needs review",
+      "description": "A new application needs review.",
+      "actionLabel": "Review application",
+      "tone": "info"
+    },
+    "applications.submitted": {
+      "title": "Application submitted",
+      "description": "Your application was submitted.",
+      "actionLabel": "View applications",
+      "tone": "success"
+    },
+    "applications.updated": {
+      "title": "Application updated",
+      "description": "An application was updated.",
+      "actionLabel": "Review application",
+      "tone": "info"
+    },
+    "applications.withdrawn": {
+      "title": "Application withdrawn",
+      "description": "An application was withdrawn.",
+      "actionLabel": "View run",
+      "tone": "neutral"
+    },
+    "applications.declined": {
+      "title": "Application declined",
+      "description": "Your application was declined.",
+      "actionLabel": "View applications",
+      "tone": "danger"
+    },
+    "applications.cancelled": {
+      "title": "Application cancelled",
+      "description": "Your application was cancelled.",
+      "actionLabel": "View applications",
+      "tone": "neutral"
+    },
+    "characters.added": {
+      "title": "Character added",
+      "description": "A character was added to your FullParty account.",
+      "actionLabel": "View characters",
+      "tone": "success"
+    },
+    "characters.primary_changed": {
+      "title": "Primary character changed",
+      "description": "Your primary character was changed on FullParty.",
+      "actionLabel": "View characters",
+      "tone": "info"
+    },
+    "characters.unclaimed": {
+      "title": "Character unclaimed",
+      "description": "A character was unclaimed from your FullParty account.",
+      "actionLabel": "View characters",
+      "tone": "neutral"
+    },
+    "assignments.roster_published_assigned": {
+      "title": "Roster published",
+      "description": "A roster was published and you are assigned.",
+      "actionLabel": "View roster",
+      "tone": "success"
+    },
+    "assignments.roster_published_bench": {
+      "title": "Roster published",
+      "description": "A roster was published and you are on the bench.",
+      "actionLabel": "View roster",
+      "tone": "warning"
+    },
+    "assignments.assigned": {
+      "title": "Roster assignment updated",
+      "description": "You were assigned to a roster slot.",
+      "actionLabel": "View assignment",
+      "tone": "success"
+    },
+    "assignments.on_bench": {
+      "title": "Bench assignment updated",
+      "description": "You were moved to the bench.",
+      "actionLabel": "View roster",
+      "tone": "warning"
+    },
+    "assignments.returned_to_queue": {
+      "title": "Returned to queue",
+      "description": "You were returned to the queue.",
+      "actionLabel": "View queue",
+      "tone": "info"
+    },
+    "assignments.marked_missing": {
+      "title": "Marked missing",
+      "description": "You were marked missing for a roster assignment.",
+      "actionLabel": "View roster",
+      "tone": "warning"
+    },
+    "assignments.missing_restored": {
+      "title": "Missing status restored",
+      "description": "You are no longer marked missing for a roster assignment.",
+      "actionLabel": "View roster",
+      "tone": "success"
+    },
+    "assignments.designation_assigned": {
+      "title": "Designation assigned",
+      "description": "A roster designation was assigned to you.",
+      "actionLabel": "View roster",
+      "tone": "success"
+    },
+    "assignments.designation_removed": {
+      "title": "Designation removed",
+      "description": "A roster designation was removed from you.",
+      "actionLabel": "View roster",
+      "tone": "neutral"
+    },
+    "runs.cancelled": {
+      "title": "Run cancelled",
+      "description": "A run you are part of was cancelled.",
+      "actionLabel": "View run",
+      "tone": "danger"
+    },
+    "runs.completed": {
+      "title": "Run completed",
+      "description": "A run you are part of was marked complete.",
+      "actionLabel": "View run",
+      "tone": "success"
+    },
+    "runs.starting_soon": {
+      "title": "Run starting soon",
+      "description": "A run you are part of starts soon.",
+      "actionLabel": "View run",
+      "tone": "warning"
+    },
+    "runs.starting_now": {
+      "title": "Run starting now",
+      "description": "A run you are part of is starting now.",
+      "actionLabel": "View run",
+      "tone": "warning"
+    },
+    "system.maintenance.upcoming": {
+      "title": "Maintenance upcoming",
+      "description": "FullParty maintenance is coming up.",
+      "actionLabel": "Read maintenance details",
+      "tone": "warning"
+    },
+    "system.announcement": {
+      "title": "FullParty announcement",
+      "description": "FullParty has a new announcement for you.",
+      "actionLabel": "Read announcement",
+      "tone": "info"
+    }
+  }
+}
