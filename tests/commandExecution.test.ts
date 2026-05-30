@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { BotContext } from "../src/bot/context.js";
 import { applicationsCommand } from "../src/commands/applications.js";
 import { fullpartyCommand } from "../src/commands/fullparty.js";
+import { helpCommand } from "../src/commands/help.js";
 import { linkCommand } from "../src/commands/link.js";
 import { payloadCommand } from "../src/commands/payload.js";
 import { pingCommand } from "../src/commands/ping.js";
@@ -65,6 +66,49 @@ describe("command execution", () => {
         },
       ],
     ]);
+  });
+
+  it("shows help in DMs", async () => {
+    const reply = createAsyncRecorder();
+
+    await helpCommand.execute(
+      {
+        inGuild: () => false,
+        reply: reply.fn,
+      } as unknown as ChatInputCommandInteraction,
+      createContext(),
+    );
+
+    expect(reply.calls).toEqual([
+      [
+        {
+          content: expect.stringContaining(
+            "Most FullParty commands need your Discord account linked first.",
+          ) as string,
+        },
+      ],
+    ]);
+    expect(reply.calls[0]?.[0]).toMatchObject({
+      content: expect.stringContaining("`/runs`") as string,
+    });
+  });
+
+  it("shows help ephemerally in guilds", async () => {
+    const reply = createAsyncRecorder();
+
+    await helpCommand.execute(
+      {
+        inGuild: () => true,
+        reply: reply.fn,
+      } as unknown as ChatInputCommandInteraction,
+      createContext(),
+    );
+
+    expect(reply.calls).toHaveLength(1);
+    expect(reply.calls[0]?.[0]).toMatchObject({
+      content: expect.stringContaining("`/setup`") as string,
+      flags: MessageFlags.Ephemeral,
+    });
   });
 
   it("shows FullParty applications for the invoking Discord user", async () => {

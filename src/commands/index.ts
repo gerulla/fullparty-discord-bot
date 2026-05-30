@@ -1,6 +1,7 @@
 import type { RESTPostAPIChatInputApplicationCommandsJSONBody } from "discord.js";
 
 import { applicationsCommand } from "./applications.js";
+import { helpCommand } from "./help.js";
 import { linkCommand } from "./link.js";
 import { payloadCommand } from "./payload.js";
 import { pingCommand } from "./ping.js";
@@ -13,6 +14,7 @@ import type { ChatInputCommand } from "./types.js";
 
 export const commands = [
   applicationsCommand,
+  helpCommand,
   linkCommand,
   pingCommand,
   payloadCommand,
