@@ -1,6 +1,13 @@
 import type { BotContext } from "./bot/context.js";
+import {
+  createRuntimeLogBuffer,
+  installConsoleLogCapture,
+} from "./lib/runtimeLogBuffer.js";
 
-process.stdout.write("[FullParty Bot] Boot file loaded.\n");
+const runtimeLogs = createRuntimeLogBuffer({ maxLines: 10_000 });
+const restoreConsoleLogCapture = installConsoleLogCapture(runtimeLogs);
+
+console.log("[FullParty Bot] Boot file loaded.");
 
 console.log("[FullParty Bot] Loading config module.");
 const { parseConfig } = await import("./config/env.js");
@@ -10,6 +17,10 @@ const { createLogger } = await import("./lib/logger.js");
 
 console.log("[FullParty Bot] Loading FullParty API module.");
 const { FullpartyApiClient } = await import("./fullparty/client.js");
+
+console.log("[FullParty Bot] Loading admin telemetry module.");
+const { createAdminApiToken } = await import("./admin/adminToken.js");
+const { SqliteAdminStore } = await import("./admin/adminStore.js");
 
 console.log("[FullParty Bot] Loading guild settings module.");
 const { SqliteGuildSettingsStore } = await import("./guildSettings/store.js");
@@ -49,10 +60,20 @@ const {
 
 const config = parseConfig();
 const logger = createLogger(config.LOG_LEVEL);
+const adminApiToken = createAdminApiToken(config.ADMIN_API_TOKEN);
+
+runtimeLogs.configureFilePersistence({
+  directoryPath: config.RUNTIME_LOG_DIRECTORY,
+  retentionDays: config.RUNTIME_LOG_RETENTION_DAYS,
+});
 
 console.log(
   `[FullParty Bot] Starting with HTTP ${config.HTTP_HOST}:${String(config.HTTP_PORT)} and log level ${config.LOG_LEVEL}.`,
 );
+logger.info("Admin API token is ready.", {
+  source: adminApiToken.source,
+  rotatesOnRestart: adminApiToken.source === "generated",
+});
 
 const fullpartyOptions = config.FULLPARTY_API_TOKEN
   ? {
@@ -64,12 +85,15 @@ const fullpartyOptions = config.FULLPARTY_API_TOKEN
     };
 const guildMemberCache = new SqliteGuildMemberCacheStore(config.DATABASE_PATH);
 const guildSettings = new SqliteGuildSettingsStore(config.DATABASE_PATH);
+const adminStore = new SqliteAdminStore(config.DATABASE_PATH);
 const failureReporter = new SqliteFailureReporter({
   databasePath: config.DATABASE_PATH,
   logFilePath: config.BOT_FAILURE_LOG_PATH,
 });
 
 const botContext: BotContext = {
+  adminApiToken: adminApiToken.value,
+  adminStore,
   failureReporter,
   fullparty: new FullpartyApiClient(fullpartyOptions),
   fullpartyWebBaseUrl: config.FULLPARTY_WEB_BASE_URL,
@@ -79,6 +103,7 @@ const botContext: BotContext = {
   logger,
   payloadCommandAllowedUserId: config.PAYLOAD_COMMAND_ALLOWED_USER_ID,
   payloads: new LatestPayloadStore(),
+  runtimeLogs,
   userDmRateLimiter: new UserDmRateLimiter({
     failureReporter,
     limit: config.USER_DM_RATE_LIMIT_COUNT,
@@ -121,6 +146,7 @@ const webhookServer = await startWebhookServer({
   context: botContext,
   fullpartyWebBaseUrl: config.FULLPARTY_WEB_BASE_URL,
   host: config.HTTP_HOST,
+  adminApiToken: adminApiToken.value,
   port: config.HTTP_PORT,
   webhookSigningSecret: config.FULLPARTY_WEBHOOK_SIGNING_SECRET,
 });
@@ -139,9 +165,11 @@ const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
   await guildRunReminderQueue.stop();
   botContext.userDmRateLimiter?.stop();
   botContext.failureReporter?.close?.();
+  botContext.adminStore?.close?.();
   botContext.guildMemberCache?.close?.();
   botContext.guildRunRoles?.close?.();
   await client.destroy();
+  restoreConsoleLogCapture();
   process.exit(0);
 };
 

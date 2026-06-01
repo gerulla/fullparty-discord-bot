@@ -17,6 +17,7 @@ describe("createBotClient", () => {
     expect(client.listenerCount(Events.GuildMemberAdd)).toBe(1);
     expect(client.listenerCount(Events.GuildMemberRemove)).toBe(1);
     expect(client.listenerCount(Events.InteractionCreate)).toBe(1);
+    expect(client.listenerCount(Events.MessageCreate)).toBe(1);
 
     client.emit(Events.ClientReady, {
       application: { id: "application-id" },
@@ -59,6 +60,89 @@ describe("createBotClient", () => {
       ["deleteGuild", "guild-id"],
     ]);
     expect(context.schedulerCalls).toEqual([["refresh", "guild-id", "guild_joined"]]);
+
+    void client.destroy();
+  });
+
+  it("sends the admin API token to the configured owner in DMs", async () => {
+    const context = createContext();
+    const client = createBotClient(context);
+    const replies: unknown[] = [];
+
+    context.adminApiToken = "admin-api-token";
+    context.payloadCommandAllowedUserId = "owner-user-id";
+    client.emit(
+      Events.MessageCreate as never,
+      {
+        author: {
+          bot: false,
+          id: "owner-user-id",
+        },
+        content: "!token",
+        inGuild: () => false,
+        reply: (message: unknown) => {
+          replies.push(message);
+
+          return Promise.resolve({});
+        },
+      } as never,
+    );
+    await flushPromises();
+
+    expect(replies).toEqual([
+      {
+        content:
+          "Here is your FullParty bot admin API token:\n\n```\nadmin-api-token\n```\n\nUse it on the admin dashboard login page. Treat it like a password.",
+      },
+    ]);
+
+    void client.destroy();
+  });
+
+  it("does not send the admin API token outside owner DMs", async () => {
+    const context = createContext();
+    const client = createBotClient(context);
+    const replies: unknown[] = [];
+
+    context.adminApiToken = "admin-api-token";
+    context.payloadCommandAllowedUserId = "owner-user-id";
+    client.emit(
+      Events.MessageCreate as never,
+      {
+        author: {
+          bot: false,
+          id: "owner-user-id",
+        },
+        content: "!token",
+        inGuild: () => true,
+        reply: (message: unknown) => {
+          replies.push(message);
+
+          return Promise.resolve({});
+        },
+      } as never,
+    );
+    client.emit(
+      Events.MessageCreate as never,
+      {
+        author: {
+          bot: false,
+          id: "different-user-id",
+        },
+        content: "!token",
+        inGuild: () => false,
+        reply: (message: unknown) => {
+          replies.push(message);
+
+          return Promise.resolve({});
+        },
+      } as never,
+    );
+    await flushPromises();
+
+    expect(replies).toEqual([
+      "This admin token is only available to the configured owner.",
+    ]);
 
     void client.destroy();
   });
@@ -133,4 +217,10 @@ function createContext(): TestContext {
     payloads: new LatestPayloadStore(),
     schedulerCalls,
   };
+}
+
+async function flushPromises(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    setImmediate(resolve);
+  });
 }

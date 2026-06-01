@@ -33,6 +33,7 @@ async function handleChatInputCommand(
   context: BotContext,
   commandMap: Map<string, ChatInputCommand>,
 ): Promise<void> {
+  const startedAt = Date.now();
   const command = commandMap.get(interaction.commandName);
 
   if (!command) {
@@ -48,7 +49,22 @@ async function handleChatInputCommand(
 
   try {
     await command.execute(interaction, context);
+    recordCommandUsage(context, {
+      commandName: interaction.commandName,
+      discordGuildId: interaction.guildId,
+      discordUserId: interaction.user.id,
+      durationMs: Date.now() - startedAt,
+      status: "succeeded",
+    });
   } catch (error) {
+    recordCommandUsage(context, {
+      commandName: interaction.commandName,
+      discordGuildId: interaction.guildId,
+      discordUserId: interaction.user.id,
+      durationMs: Date.now() - startedAt,
+      errorCode: getCommandErrorCode(error),
+      status: "failed",
+    });
     context.logger.error("Command execution failed.", {
       commandName: interaction.commandName,
       error,
@@ -67,6 +83,22 @@ async function handleChatInputCommand(
     });
     await replyWithError(interaction, error, context.fullpartyWebBaseUrl);
   }
+}
+
+function recordCommandUsage(
+  context: BotContext,
+  input: {
+    commandName: string;
+    discordGuildId: string | null;
+    discordUserId: string;
+    durationMs: number;
+    errorCode?: string | undefined;
+    status: "succeeded" | "failed";
+  },
+): void {
+  void context.adminStore?.recordCommandUsage(input).catch((error: unknown) => {
+    context.logger.warn("Unable to record admin command telemetry.", { error });
+  });
 }
 
 async function handleComponentInteraction(

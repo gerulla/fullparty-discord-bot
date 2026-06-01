@@ -27,6 +27,13 @@ export type UserDmRateLimiterResult<T extends Record<string, unknown>> =
     })
   | UserDmQueuedResult;
 
+export type UserDmQueueSnapshot = {
+  discordUserId: string;
+  nextAttemptAt: string | null;
+  queueLength: number;
+  sentInWindow: number;
+};
+
 type QueuedUserDm<T extends Record<string, unknown>> = {
   enqueuedAt: number;
   operation: () => Promise<T>;
@@ -95,6 +102,21 @@ export class UserDmRateLimiter {
     }
 
     this.timers.clear();
+  }
+
+  public getQueueSnapshot(): UserDmQueueSnapshot[] {
+    const userIds = new Set([...this.queues.keys(), ...this.sentAtByUser.keys()]);
+
+    return [...userIds].map((discordUserId) => {
+      const delayMs = this.getAvailableDelay(discordUserId);
+
+      return {
+        discordUserId,
+        nextAttemptAt: delayMs > 0 ? new Date(Date.now() + delayMs).toISOString() : null,
+        queueLength: this.queues.get(discordUserId)?.length ?? 0,
+        sentInWindow: this.pruneSentAt(discordUserId).length,
+      };
+    });
   }
 
   private async sendImmediately<T extends Record<string, unknown>>(

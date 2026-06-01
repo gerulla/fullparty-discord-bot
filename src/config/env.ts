@@ -13,6 +13,7 @@ const urlString = z.preprocess(
 );
 
 export const appConfigSchema = z.object({
+  ADMIN_API_TOKEN: optionalNonEmptyString,
   BOT_FAILURE_LOG_PATH: nonEmptyString.default(
     "data/fullparty-discord-bot-failures.jsonl",
   ),
@@ -54,6 +55,8 @@ export const appConfigSchema = z.object({
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PAYLOAD_COMMAND_ALLOWED_USER_ID: optionalNonEmptyString,
+  RUNTIME_LOG_DIRECTORY: nonEmptyString.default("data/runtime-logs"),
+  RUNTIME_LOG_RETENTION_DAYS: z.coerce.number().int().min(1).default(30),
   USER_DM_RATE_LIMIT_COUNT: z.coerce.number().int().min(1).max(10).default(2),
   USER_DM_RATE_LIMIT_WINDOW_MS: z.coerce
     .number()

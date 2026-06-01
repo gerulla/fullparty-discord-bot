@@ -6,6 +6,15 @@ import { PermissionFlagsBits } from "discord.js";
 import type { APIEmbed, APIEmbedField, Client, MessageCreateOptions } from "discord.js";
 import { z } from "zod";
 
+import { handleAdminApiRequest } from "../admin/adminApi.js";
+import type {
+  AdminAutomationRunInput,
+  AdminBotEventInput,
+  AdminDmDeliveryInput,
+  AdminGuildMessageInput,
+  AdminStore,
+} from "../admin/adminStore.js";
+import { handleAdminUiRequest } from "../admin/adminUi.js";
 import type { BotContext } from "../bot/context.js";
 import {
   createDiscordGuildSnapshot,
@@ -84,6 +93,8 @@ const integrationHealthcheckEvent = "integration.healthcheck";
 const discordNicknameLimit = 32;
 
 export type WebhookServerOptions = {
+  adminApiToken?: string | undefined;
+  adminUiRoot?: string | undefined;
   client: Client;
   context: BotContext;
   fullpartyWebBaseUrl: string;
@@ -98,6 +109,10 @@ type FullpartyEvent = z.infer<typeof fullpartyEventSchema>;
 
 type ActionResult = Record<string, unknown>;
 type GuildAutomationProcessorOptions = Pick<WebhookServerOptions, "client" | "context">;
+type DmDeliveryMetadata = {
+  eventType?: string | undefined;
+  notificationType?: string | undefined;
+};
 type HealthCheckResult = {
   ok: boolean;
   status: HealthStatus | "not_configured";
@@ -193,6 +208,11 @@ type SendableChannel = {
   send(message: MessageCreateOptions): Promise<unknown>;
 };
 
+type GuildMessageTelemetryMetadata = {
+  discordGuildId?: string | undefined;
+  messageType?: string | undefined;
+};
+
 export async function startWebhookServer(
   options: WebhookServerOptions,
 ): Promise<ReturnType<typeof createWebhookServer>> {
@@ -248,6 +268,25 @@ async function handleRequest(
   let eventName: string | undefined;
 
   try {
+    if (
+      await handleAdminApiRequest(request, response, url, {
+        adminApiToken: options.adminApiToken,
+        client: options.client,
+        context: options.context,
+        createHealth: () => createHealthResponse(options),
+      })
+    ) {
+      return;
+    }
+
+    if (
+      await handleAdminUiRequest(request, response, url, {
+        adminUiRoot: options.adminUiRoot,
+      })
+    ) {
+      return;
+    }
+
     if (request.method === "GET" && url.pathname === "/health") {
       sendJson(response, 200, await createHealthResponse(options));
       return;
@@ -256,6 +295,12 @@ async function handleRequest(
     if (request.method === "GET" && url.pathname === "/events") {
       handleHealthcheckRequest(request, response, options);
       writeEventConsoleLog(request, url, integrationHealthcheckEvent);
+      recordAdminBotEvent(options.context.adminStore, options.context.logger, {
+        eventType: integrationHealthcheckEvent,
+        occurredAt: new Date().toISOString(),
+        requestHost: getRequestHost(request),
+        status: "accepted",
+      });
       eventLogWritten = true;
       return;
     }
@@ -283,6 +328,15 @@ async function handleRequest(
     writeEventConsoleLog(request, url, event.event, getEventDataType(event));
     eventLogWritten = true;
     const result = await dispatchEvent(event, options);
+    recordAdminBotEvent(options.context.adminStore, options.context.logger, {
+      ...getAdminEventSubject(event),
+      dataType: getEventDataType(event),
+      eventType: event.event,
+      occurredAt: new Date().toISOString(),
+      requestHost: getRequestHost(request),
+      requestId: getRequestId(event),
+      status: "accepted",
+    });
 
     sendJson(response, 200, {
       event: event.event,
@@ -297,6 +351,13 @@ async function handleRequest(
 
     if (url.pathname === "/events") {
       recordWebhookFailure(options, request, url, error, eventName);
+      recordAdminBotEvent(options.context.adminStore, options.context.logger, {
+        eventType: eventName ?? "unknown",
+        occurredAt: new Date().toISOString(),
+        requestHost: getRequestHost(request),
+        status: "failed",
+        errorCode: getEventErrorCode(error),
+      });
     }
 
     handleError(response, error, options);
@@ -421,6 +482,65 @@ function recordWebhookFailure(
   });
 }
 
+function recordAdminBotEvent(
+  store: AdminStore | undefined,
+  logger: BotContext["logger"],
+  input: AdminBotEventInput,
+): void {
+  void store?.recordBotEvent(input).catch((error: unknown) => {
+    logger.warn("Unable to record admin bot event telemetry.", { error });
+  });
+}
+
+function recordAdminDmDelivery(
+  store: AdminStore | undefined,
+  logger: BotContext["logger"],
+  input: AdminDmDeliveryInput,
+): void {
+  void store?.recordDmDelivery(input).catch((error: unknown) => {
+    logger.warn("Unable to record admin DM telemetry.", { error });
+  });
+}
+
+function recordAdminAutomationRun(
+  store: AdminStore | undefined,
+  logger: BotContext["logger"],
+  input: AdminAutomationRunInput,
+): void {
+  void store?.recordAutomationRun(input).catch((error: unknown) => {
+    logger.warn("Unable to record admin automation telemetry.", { error });
+  });
+}
+
+function recordAdminGuildMessage(
+  store: AdminStore | undefined,
+  logger: BotContext["logger"],
+  input: AdminGuildMessageInput,
+): void {
+  void store?.recordGuildMessage(input).catch((error: unknown) => {
+    logger.warn("Unable to record admin guild message telemetry.", { error });
+  });
+}
+
+function getAdminEventSubject(
+  event: FullpartyEvent,
+): Pick<AdminBotEventInput, "discordGuildId" | "discordUserId"> {
+  if (!isRecord(event.data)) {
+    return {};
+  }
+
+  const discordGuildId = getStringProperty(event.data, "discord_guild_id");
+  const discordUser = event.data.discord_user;
+  const discordUserId = isRecord(discordUser)
+    ? getStringProperty(discordUser, "id")
+    : undefined;
+
+  return {
+    ...(discordGuildId ? { discordGuildId } : {}),
+    ...(discordUserId ? { discordUserId } : {}),
+  };
+}
+
 async function dispatchEvent(
   event: FullpartyEvent,
   options: WebhookServerOptions,
@@ -429,18 +549,34 @@ async function dispatchEvent(
     const data = userAppEventDataSchema.parse(event.data);
     const discordUserId = data.discord_user.id;
 
-    return sendUserDm(options, discordUserId, {
-      content: data.welcome_message ?? userAppInstalledMessage,
-    });
+    return sendUserDm(
+      options,
+      discordUserId,
+      {
+        content: data.welcome_message ?? userAppInstalledMessage,
+      },
+      {
+        eventType: event.event,
+        notificationType: event.event,
+      },
+    );
   }
 
   if (event.event === "discord.user_app.disconnected") {
     const data = userAppEventDataSchema.parse(event.data);
     const discordUserId = data.discord_user.id;
 
-    return sendUserDm(options, discordUserId, {
-      content: userAppDisconnectedMessage,
-    });
+    return sendUserDm(
+      options,
+      discordUserId,
+      {
+        content: userAppDisconnectedMessage,
+      },
+      {
+        eventType: event.event,
+        notificationType: event.event,
+      },
+    );
   }
 
   if (event.event === "discord.notification.delivery") {
@@ -453,6 +589,10 @@ async function dispatchEvent(
       options,
       discordUserId,
       notificationMessageService.createDmMessage(data),
+      {
+        eventType: event.event,
+        notificationType: data.type,
+      },
     );
 
     return {
@@ -528,11 +668,14 @@ export async function processGuildRunReminder(
   data: GuildRunReminderData,
 ): Promise<ActionResult> {
   const settings = await options.context.guildSettings.get(data.discord_guild_id);
-
-  return {
+  const result = {
     ...(await assignUpcomingRaiderRole(options, data, settings)),
     ...(await syncRunReminderNicknames(options, data, settings)),
   };
+
+  recordRunReminderAutomationTelemetry(options, data, result);
+
+  return result;
 }
 
 export async function processGuildRunRoleAssignment(
@@ -540,8 +683,11 @@ export async function processGuildRunRoleAssignment(
   data: GuildRunReminderData,
 ): Promise<ActionResult> {
   const settings = await options.context.guildSettings.get(data.discord_guild_id);
+  const result = await assignUpcomingRaiderRole(options, data, settings);
 
-  return assignUpcomingRaiderRole(options, data, settings);
+  recordRoleAssignmentAutomationTelemetry(options, data, result);
+
+  return result;
 }
 
 export async function processGuildRunCompleted(
@@ -549,8 +695,108 @@ export async function processGuildRunCompleted(
   data: GuildRunCompletedData,
 ): Promise<ActionResult> {
   const settings = await options.context.guildSettings.get(data.discord_guild_id);
+  const result = await deleteRunRole(options, data, settings);
 
-  return deleteRunRole(options, data, settings);
+  recordCleanupAutomationTelemetry(options, data, result);
+
+  return result;
+}
+
+function recordRunReminderAutomationTelemetry(
+  options: GuildAutomationProcessorOptions,
+  data: GuildRunReminderData,
+  result: ActionResult,
+): void {
+  recordRoleAssignmentAutomationTelemetry(options, data, result);
+  recordAdminAutomationRun(options.context.adminStore, options.context.logger, {
+    automationType: "nickname_sync",
+    discordGuildId: data.discord_guild_id,
+    durationMs: getResultNumber(result, "nicknameProcessingTimeMs"),
+    eventType: data.type,
+    failureCount: getResultNumber(result, "nicknameFailedUserCount") ?? 0,
+    result,
+    runId: data.run_id,
+    skippedCount: getResultNumber(result, "nicknameSkippedUserCount") ?? 0,
+    status: getAutomationStatus({
+      failureCount: getResultNumber(result, "nicknameFailedUserCount") ?? 0,
+      skippedReason: getResultString(result, "nicknameSkippedReason"),
+      successCount: getResultNumber(result, "nicknameSyncedUserCount") ?? 0,
+    }),
+    successCount: getResultNumber(result, "nicknameSyncedUserCount") ?? 0,
+  });
+}
+
+function recordRoleAssignmentAutomationTelemetry(
+  options: GuildAutomationProcessorOptions,
+  data: GuildRunReminderData,
+  result: ActionResult,
+): void {
+  const successCount = getResultNumber(result, "assignedUserCount") ?? 0;
+  const failureCount = getResultNumber(result, "failedUserCount") ?? 0;
+
+  recordAdminAutomationRun(options.context.adminStore, options.context.logger, {
+    automationType: "role_assignment",
+    discordGuildId: data.discord_guild_id,
+    durationMs: getResultNumber(result, "roleProcessingTimeMs"),
+    eventType: data.type,
+    failureCount,
+    result,
+    runId: data.run_id,
+    skippedCount: getResultString(result, "skippedReason")
+      ? (getResultNumber(result, "requestedUserCount") ?? 0)
+      : 0,
+    status: getAutomationStatus({
+      failureCount,
+      skippedReason: getResultString(result, "skippedReason"),
+      successCount,
+    }),
+    successCount,
+  });
+}
+
+function recordCleanupAutomationTelemetry(
+  options: GuildAutomationProcessorOptions,
+  data: GuildRunCompletedData,
+  result: ActionResult,
+): void {
+  const successCount = getResultNumber(result, "deletedRoleCount") ?? 0;
+  const failureCount = getResultNumber(result, "failedRoleCount") ?? 0;
+
+  recordAdminAutomationRun(options.context.adminStore, options.context.logger, {
+    automationType: "role_cleanup",
+    discordGuildId: data.discord_guild_id,
+    eventType: data.type,
+    failureCount,
+    result,
+    runId: data.run_id,
+    skippedCount: getResultString(result, "skippedReason") ? 1 : 0,
+    status: getAutomationStatus({
+      failureCount,
+      skippedReason: getResultString(result, "skippedReason"),
+      successCount,
+    }),
+    successCount,
+  });
+}
+
+function getAutomationStatus(input: {
+  failureCount: number;
+  skippedReason: string | undefined;
+  successCount: number;
+}): AdminAutomationRunInput["status"] {
+  if (input.skippedReason) {
+    return "skipped";
+  }
+
+  if (input.failureCount > 0 && input.successCount === 0) {
+    return "failed";
+  }
+
+  if (input.failureCount > 0) {
+    return "partial";
+  }
+
+  return "completed";
 }
 
 async function createGuildSnapshotResult(
@@ -1682,8 +1928,16 @@ async function sendBotLogMessage(
   options: GuildAutomationProcessorOptions,
   channelId: string | undefined,
   message: MessageCreateOptions,
+  metadata: GuildMessageTelemetryMetadata = {},
 ): Promise<void> {
+  const messageType = metadata.messageType ?? "bot_log";
+
   if (!channelId) {
+    recordAdminGuildMessage(options.context.adminStore, options.context.logger, {
+      discordGuildId: metadata.discordGuildId,
+      messageType,
+      status: "skipped",
+    });
     return;
   }
 
@@ -1691,14 +1945,43 @@ async function sendBotLogMessage(
     const channel = await options.client.channels.fetch(channelId);
 
     if (isSendableChannel(channel)) {
-      await channel.send(message);
+      const sentMessage = await channel.send(message);
+
+      recordAdminGuildMessage(options.context.adminStore, options.context.logger, {
+        channelId,
+        discordGuildId: metadata.discordGuildId,
+        messageId: getSentMessageId(sentMessage),
+        messageType,
+        status: "sent",
+      });
+      return;
     }
+
+    recordAdminGuildMessage(options.context.adminStore, options.context.logger, {
+      channelId,
+      discordGuildId: metadata.discordGuildId,
+      errorCode: "channel_not_sendable",
+      messageType,
+      status: "failed",
+    });
   } catch (error) {
+    recordAdminGuildMessage(options.context.adminStore, options.context.logger, {
+      channelId,
+      discordGuildId: metadata.discordGuildId,
+      errorCode: getDiscordApiErrorCode(error),
+      errorMessage: getErrorMessage(error),
+      messageType,
+      status: "failed",
+    });
     options.context.logger.warn("Unable to send bot-log message.", {
       channelId,
       error,
     });
   }
+}
+
+function getSentMessageId(value: unknown): string | undefined {
+  return isRecord(value) ? getStringProperty(value, "id") : undefined;
 }
 
 function isSendableChannel(value: unknown): value is SendableChannel {
@@ -2141,6 +2424,12 @@ function getResultString(result: ActionResult, key: string): string | undefined 
   return typeof value === "string" && value.trim().length > 0 ? value : undefined;
 }
 
+function getResultNumber(result: ActionResult, key: string): number | undefined {
+  const value = result[key];
+
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
 function formatRunReminderSkippedReason(reason: string): string {
   const knownReasons: Record<string, string> = {
     bot_missing_manage_roles:
@@ -2220,11 +2509,53 @@ async function sendUserDm(
   options: WebhookServerOptions,
   discordUserId: string,
   messageOptions: MessageCreateOptions,
+  metadata: DmDeliveryMetadata = {},
 ): Promise<ActionResult> {
-  const operation = () => sendUserDmNow(options, discordUserId, messageOptions);
+  const operation = async () => {
+    try {
+      const result = await sendUserDmNow(options, discordUserId, messageOptions);
+
+      recordAdminDmDelivery(options.context.adminStore, options.context.logger, {
+        discordUserId,
+        eventType: metadata.eventType,
+        messageId: getResultString(result, "messageId"),
+        notificationType: metadata.notificationType,
+        occurredAt: new Date().toISOString(),
+        sentAt: new Date().toISOString(),
+        status: "sent",
+      });
+
+      return result;
+    } catch (error) {
+      recordAdminDmDelivery(options.context.adminStore, options.context.logger, {
+        discordUserId,
+        errorCode: getDiscordApiErrorCode(error),
+        errorMessage: getErrorMessage(error),
+        eventType: metadata.eventType,
+        notificationType: metadata.notificationType,
+        occurredAt: new Date().toISOString(),
+        status: "failed",
+      });
+
+      throw error;
+    }
+  };
 
   if (options.context.userDmRateLimiter) {
-    return options.context.userDmRateLimiter.send(discordUserId, operation);
+    const result = await options.context.userDmRateLimiter.send(discordUserId, operation);
+
+    if (result.queued) {
+      recordAdminDmDelivery(options.context.adminStore, options.context.logger, {
+        discordUserId,
+        eventType: metadata.eventType,
+        notificationType: metadata.notificationType,
+        occurredAt: new Date().toISOString(),
+        queuedAt: new Date().toISOString(),
+        status: "queued",
+      });
+    }
+
+    return result;
   }
 
   return operation();
@@ -2419,6 +2750,30 @@ function getEventErrorCode(error: unknown): string {
   }
 
   return "internal_server_error";
+}
+
+function getDiscordApiErrorCode(error: unknown): string | undefined {
+  if (!isRecord(error)) {
+    return undefined;
+  }
+
+  const code = error.code;
+
+  if (typeof code === "number" || typeof code === "string") {
+    return String(code);
+  }
+
+  const rawError = error.rawError;
+
+  if (!isRecord(rawError)) {
+    return undefined;
+  }
+
+  const rawCode = rawError.code;
+
+  return typeof rawCode === "number" || typeof rawCode === "string"
+    ? String(rawCode)
+    : undefined;
 }
 
 function getFailureSeverity(error: unknown): "warn" | "error" {

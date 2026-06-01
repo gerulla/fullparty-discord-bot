@@ -33,6 +33,8 @@ describe("parseConfig", () => {
       HTTP_PORT: 3000,
       LOG_LEVEL: "info",
       NODE_ENV: "development",
+      RUNTIME_LOG_DIRECTORY: "data/runtime-logs",
+      RUNTIME_LOG_RETENTION_DAYS: 30,
       USER_DM_RATE_LIMIT_COUNT: 2,
       USER_DM_RATE_LIMIT_WINDOW_MS: 300000,
     });
@@ -41,11 +43,13 @@ describe("parseConfig", () => {
   it("normalizes optional empty strings to undefined", () => {
     const config = parseConfig({
       ...baseEnv,
+      ADMIN_API_TOKEN: "",
       DISCORD_GUILD_ID: "",
       FULLPARTY_API_TOKEN: "   ",
       PAYLOAD_COMMAND_ALLOWED_USER_ID: "",
     });
 
+    expect(config.ADMIN_API_TOKEN).toBeUndefined();
     expect(config.DISCORD_GUILD_ID).toBeUndefined();
     expect(config.FULLPARTY_API_TOKEN).toBeUndefined();
     expect(config.PAYLOAD_COMMAND_ALLOWED_USER_ID).toBeUndefined();

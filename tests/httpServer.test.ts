@@ -1,8 +1,12 @@
 import { once } from "node:events";
 import { createHmac } from "node:crypto";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import type { Server } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
+import type { AdminStore } from "../src/admin/adminStore.js";
 import type { BotContext } from "../src/bot/context.js";
 import {
   createWebhookServer,
@@ -10,13 +14,23 @@ import {
   type WebhookServerOptions,
 } from "../src/http/server.js";
 import type { GuildRunRoleMapping } from "../src/guildAutomation/runRoleStore.js";
+import { createRuntimeLogBuffer } from "../src/lib/runtimeLogBuffer.js";
 import { LatestPayloadStore } from "../src/payloads/latestPayloadStore.js";
 
 describe("Fullparty webhook server", () => {
   const servers: Server[] = [];
+  const tempDirs: string[] = [];
 
   afterEach(async () => {
     await Promise.all(servers.splice(0).map((server) => stopWebhookServer(server)));
+    await Promise.all(
+      tempDirs.splice(0).map((directory) =>
+        rm(directory, {
+          force: true,
+          recursive: true,
+        }),
+      ),
+    );
   });
 
   it("reports health without authentication", async () => {
@@ -113,6 +127,361 @@ describe("Fullparty webhook server", () => {
         ok: true,
         status: "degraded",
       },
+      status: 200,
+    });
+  });
+
+  it("returns disabled admin API responses when no admin token is configured", async () => {
+    const baseUrl = await listen(createTestServer());
+
+    await expect(fetchJson(`${baseUrl}/admin/api/summary`)).resolves.toMatchObject({
+      body: {
+        error: "admin_api_disabled",
+      },
+      status: 503,
+    });
+  });
+
+  it("requires the admin API token before serving telemetry", async () => {
+    const context: BotContext = {
+      ...createContext(),
+      adminStore: createAdminStore(),
+    };
+    const baseUrl = await listen(
+      createTestServer({
+        adminApiToken: "admin-token",
+        client: {
+          channels: { fetch: () => Promise.resolve(null) },
+          guilds: {
+            cache: new Map(),
+          },
+          isReady: () => true,
+          user: {
+            id: "bot-user-id",
+          },
+          ws: {
+            ping: 42,
+          },
+        } as never,
+        context,
+      }),
+    );
+
+    await expect(fetchJson(`${baseUrl}/admin/api/summary`)).resolves.toMatchObject({
+      body: {
+        error: "unauthorized",
+      },
+      status: 401,
+    });
+  });
+
+  it("serves admin API telemetry with a valid token", async () => {
+    const recordedGuildRuntime: unknown[] = [];
+    const context: BotContext = {
+      ...createContext(),
+      adminStore: createAdminStore({
+        recordGuildRuntime: (input) => {
+          recordedGuildRuntime.push(input);
+
+          return Promise.resolve();
+        },
+      }),
+    };
+    const baseUrl = await listen(
+      createTestServer({
+        adminApiToken: "admin-token",
+        client: {
+          channels: { fetch: () => Promise.resolve(null) },
+          guilds: {
+            cache: new Map([
+              [
+                "guild-id",
+                {
+                  available: true,
+                  id: "guild-id",
+                  memberCount: 15,
+                  members: {
+                    me: {
+                      permissions: {
+                        bitfield: 8n,
+                      },
+                    },
+                  },
+                  name: "Raid Guild",
+                },
+              ],
+            ]),
+          },
+          isReady: () => true,
+          user: {
+            id: "bot-user-id",
+          },
+          ws: {
+            ping: 42,
+          },
+        } as never,
+        context,
+      }),
+    );
+
+    await expect(
+      fetchJson(`${baseUrl}/admin/api/summary`, {
+        headers: {
+          authorization: "Bearer admin-token",
+        },
+      }),
+    ).resolves.toMatchObject({
+      body: {
+        health: {
+          ok: true,
+          status: "healthy",
+        },
+        queue: {
+          guildAutomation: {
+            jobsByStatus: {},
+            oldestQueuedAt: null,
+            recentFailedCount: 0,
+          },
+          userDms: {
+            cooldownUsers: 0,
+            queuedMessages: 0,
+            queuedUsers: 0,
+          },
+        },
+        telemetry: {
+          events: {
+            last1h: {
+              total: 0,
+            },
+          },
+        },
+      },
+      status: 200,
+    });
+    expect(recordedGuildRuntime).toEqual([
+      {
+        botPermissions: "8",
+        discordGuildId: "guild-id",
+        linkedAt: null,
+        memberCount: 15,
+        name: "Raid Guild",
+        unavailable: false,
+      },
+    ]);
+  });
+
+  it("serves admin dashboard diagnostics with health reasons and failure details", async () => {
+    const loggedErrors: unknown[] = [];
+    const context: BotContext = {
+      ...createContext(),
+      adminStore: createAdminStore({
+        getFailures: () =>
+          Promise.resolve([
+            {
+              action: "guild_automation_job_retry",
+              affectsHealth: true,
+              details: {
+                attempts: 2,
+                serializedError: {
+                  message: "Discord API rejected the role update.",
+                },
+              },
+              discordGuildId: "guild-id",
+              discordUserId: null,
+              errorCode: "guild_automation_job_retry",
+              eventType: "runs.starting_soon",
+              id: 1,
+              message: "Discord API rejected the role update.",
+              occurredAt: "2026-06-01T10:15:00.000Z",
+              runId: 123,
+              severity: "warn",
+              source: "queue",
+            },
+          ]),
+      }),
+      failureReporter: {
+        getHealthSummary: () =>
+          Promise.resolve({
+            errorCount: 0,
+            ignoredCount: 0,
+            last24h: {
+              count: 1,
+              errorCount: 0,
+              ignoredCount: 0,
+              topSources: {
+                queue: 1,
+              },
+              warnCount: 1,
+            },
+            lastFailureAt: "2026-06-01T10:15:00.000Z",
+            ok: false,
+            status: "degraded",
+            unhealthyErrorThreshold: 5,
+            warnCount: 1,
+            windowSeconds: 600,
+          }),
+        record: () =>
+          Promise.resolve({
+            action: "test",
+            id: 1,
+            message: "test",
+            occurredAt: "2026-06-01T10:15:00.000Z",
+            severity: "warn",
+            source: "queue",
+          }),
+      },
+      logger: {
+        debug: () => undefined,
+        error: (_message, meta) => {
+          loggedErrors.push(meta);
+        },
+        info: () => undefined,
+        warn: () => undefined,
+      },
+    };
+    const baseUrl = await listen(
+      createTestServer({
+        adminApiToken: "admin-token",
+        client: {
+          channels: { fetch: () => Promise.resolve(null) },
+          guilds: {
+            cache: new Map(),
+          },
+          isReady: () => true,
+          user: {
+            id: "bot-user-id",
+          },
+          ws: {
+            ping: 42,
+          },
+        } as never,
+        context,
+      }),
+    );
+
+    const result = await fetchJson(`${baseUrl}/admin/api/metrics`, {
+      headers: {
+        authorization: "Bearer admin-token",
+      },
+    });
+
+    expect(loggedErrors).toEqual([]);
+    expect(result).toMatchObject({
+      body: {
+        data: {
+          diagnostics: {
+            healthIssues: [
+              {
+                check: "recent_failures",
+                occurredAt: "2026-06-01T10:15:00.000Z",
+                reason:
+                  "1 warning(s) affected health in the last 10m. The unhealthy threshold is 5 recent error(s).",
+                severity: "warn",
+                status: "degraded",
+              },
+            ],
+            recentFailures: [
+              {
+                action: "guild_automation_job_retry",
+                details: {
+                  attempts: 2,
+                },
+                errorCode: "guild_automation_job_retry",
+                message: "Discord API rejected the role update.",
+                source: "queue",
+              },
+            ],
+          },
+          health: {
+            status: "degraded",
+          },
+        },
+      },
+      status: 200,
+    });
+  });
+
+  it("serves recent runtime logs with a valid admin token", async () => {
+    const runtimeLogs = createRuntimeLogBuffer({ maxLines: 3 });
+
+    runtimeLogs.append("info", "oldest");
+    runtimeLogs.append("warn", "middle");
+    runtimeLogs.append("error", "newest");
+
+    const context: BotContext = {
+      ...createContext(),
+      adminStore: createAdminStore(),
+      runtimeLogs,
+    };
+    const baseUrl = await listen(
+      createTestServer({
+        adminApiToken: "admin-token",
+        client: {
+          channels: { fetch: () => Promise.resolve(null) },
+          guilds: {
+            cache: new Map(),
+          },
+          isReady: () => true,
+          user: {
+            id: "bot-user-id",
+          },
+          ws: {
+            ping: 42,
+          },
+        } as never,
+        context,
+      }),
+    );
+
+    await expect(
+      fetchJson(`${baseUrl}/admin/api/logs?limit=2`, {
+        headers: {
+          authorization: "Bearer admin-token",
+        },
+      }),
+    ).resolves.toMatchObject({
+      body: {
+        data: [
+          {
+            level: "error",
+            message: "newest",
+          },
+          {
+            level: "warn",
+            message: "middle",
+          },
+        ],
+        meta: {
+          limit: 2,
+          maxLines: 3,
+          totalBuffered: 3,
+        },
+      },
+      status: 200,
+    });
+  });
+
+  it("serves the built admin UI under /admin", async () => {
+    const adminUiRoot = await mkdtemp(join(tmpdir(), "fullparty-admin-ui-"));
+
+    tempDirs.push(adminUiRoot);
+    await mkdir(join(adminUiRoot, "assets"));
+    await writeFile(
+      join(adminUiRoot, "index.html"),
+      '<div id="app">FullParty Admin</div>',
+    );
+    await writeFile(join(adminUiRoot, "assets", "app.js"), "console.log('admin');");
+
+    const baseUrl = await listen(createTestServer({ adminUiRoot }));
+
+    await expect(fetchText(`${baseUrl}/admin/`)).resolves.toMatchObject({
+      body: '<div id="app">FullParty Admin</div>',
+      contentType: "text/html; charset=utf-8",
+      status: 200,
+    });
+    await expect(fetchText(`${baseUrl}/admin/assets/app.js`)).resolves.toMatchObject({
+      body: "console.log('admin');",
+      contentType: "text/javascript; charset=utf-8",
       status: 200,
     });
   });
@@ -1875,6 +2244,12 @@ type FetchJsonResponse = {
   status: number;
 };
 
+type FetchTextResponse = {
+  body: string;
+  contentType: string | null;
+  status: number;
+};
+
 function postAction(baseUrl: string, body: unknown): Promise<FetchJsonResponse> {
   const rawBody = JSON.stringify(body);
   const timestamp = currentTimestamp();
@@ -1888,6 +2263,16 @@ function postAction(baseUrl: string, body: unknown): Promise<FetchJsonResponse> 
     },
     method: "POST",
   });
+}
+
+async function fetchText(url: string, init?: RequestInit): Promise<FetchTextResponse> {
+  const response = await fetch(url, init);
+
+  return {
+    body: await response.text(),
+    contentType: response.headers.get("content-type"),
+    status: response.status,
+  };
 }
 
 async function fetchJson(url: string, init?: RequestInit): Promise<FetchJsonResponse> {
@@ -1945,6 +2330,84 @@ function createMemoryRunRoleStore(): NonNullable<BotContext["guildRunRoles"]> {
 
       return Promise.resolve(mapping);
     },
+  };
+}
+
+function createAdminStore(overrides: Partial<AdminStore> = {}): AdminStore {
+  return {
+    getAutomationRuns: () => Promise.resolve([]),
+    getCommandUsages: () => Promise.resolve([]),
+    getDashboardMetrics: () =>
+      Promise.resolve({
+        breakdowns: {
+          automationStatuses24h: [],
+          commandNames24h: [],
+          dmStatuses24h: [],
+          eventTypes24h: [],
+          guildMessageStatuses24h: [],
+          notificationTypes24h: [],
+        },
+        totals: {
+          automationFailures24h: 0,
+          automationRuns24h: 0,
+          commandsFailed24h: 0,
+          commandsUsed24h: 0,
+          dmsFailed24h: 0,
+          dmsQueued24h: 0,
+          dmsSent24h: 0,
+          events24h: 0,
+          eventsFailed24h: 0,
+          failures24h: 0,
+          guildMessagesFailed24h: 0,
+          guildMessagesSent24h: 0,
+        },
+        trends: {
+          daily7d: [],
+          hourly24h: [],
+        },
+      }),
+    getDmDeliveries: () => Promise.resolve([]),
+    getEvents: () => Promise.resolve([]),
+    getFailures: () => Promise.resolve([]),
+    getGuildDashboards: () => Promise.resolve([]),
+    getGuildMessages: () => Promise.resolve([]),
+    getGuilds: () => Promise.resolve([]),
+    getQueueSummary: () =>
+      Promise.resolve({
+        jobsByStatus: {},
+        oldestQueuedAt: null,
+        recentFailedCount: 0,
+      }),
+    getSummary: () =>
+      Promise.resolve({
+        automationRuns: {
+          last1h: { byStatus: {}, total: 0 },
+          last24h: { byStatus: {}, total: 0 },
+        },
+        commandUsages: {
+          last1h: { byStatus: {}, total: 0 },
+          last24h: { byStatus: {}, total: 0 },
+        },
+        dmDeliveries: {
+          last1h: { byStatus: {}, total: 0 },
+          last24h: { byStatus: {}, total: 0 },
+        },
+        events: {
+          last1h: { byStatus: {}, total: 0 },
+          last24h: { byStatus: {}, total: 0 },
+        },
+        guildMessages: {
+          last1h: { byStatus: {}, total: 0 },
+          last24h: { byStatus: {}, total: 0 },
+        },
+      }),
+    recordAutomationRun: () => Promise.resolve(),
+    recordBotEvent: () => Promise.resolve(),
+    recordCommandUsage: () => Promise.resolve(),
+    recordDmDelivery: () => Promise.resolve(),
+    recordGuildMessage: () => Promise.resolve(),
+    recordGuildRuntime: () => Promise.resolve(),
+    ...overrides,
   };
 }
 

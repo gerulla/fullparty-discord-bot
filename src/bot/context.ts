@@ -1,4 +1,5 @@
 import type { FullpartyApiClient } from "../fullparty/client.js";
+import type { AdminStore } from "../admin/adminStore.js";
 import type { UserDmRateLimiter } from "../dm/userDmRateLimiter.js";
 import type { GuildRunRoleStore } from "../guildAutomation/runRoleStore.js";
 import type { GuildRunReminderQueue } from "../guildAutomation/runReminderQueue.js";
@@ -7,9 +8,12 @@ import type { GuildMemberCacheStore } from "../guildMembership/memberCacheStore.
 import type { GuildSettingsStore } from "../guildSettings/store.js";
 import type { FailureReporter } from "../health/failureReporter.js";
 import type { Logger } from "../lib/logger.js";
+import type { RuntimeLogBuffer } from "../lib/runtimeLogBuffer.js";
 import type { LatestPayloadStore } from "../payloads/latestPayloadStore.js";
 
 export type BotContext = {
+  adminApiToken?: string | undefined;
+  adminStore?: AdminStore | undefined;
   failureReporter?: FailureReporter | undefined;
   fullparty: FullpartyApiClient;
   fullpartyWebBaseUrl: string;
@@ -21,5 +25,6 @@ export type BotContext = {
   logger: Logger;
   payloadCommandAllowedUserId?: string | undefined;
   payloads: LatestPayloadStore;
+  runtimeLogs?: RuntimeLogBuffer | undefined;
   userDmRateLimiter?: UserDmRateLimiter | undefined;
 };
