@@ -2,6 +2,7 @@ export type GuildSettings = {
   botLogChannelId?: string;
   botModeratorRoleId?: string;
   guildId: string;
+  linkedAt?: string;
   runAnnouncementChannelId?: string;
   syncDiscordNamesToFf14: boolean;
   upcomingRaiderRoleId?: string;
@@ -11,6 +12,7 @@ export type GuildSettings = {
 export type GuildSettingsPatch = {
   botLogChannelId?: string | null;
   botModeratorRoleId?: string | null;
+  linkedAt?: string | null;
   runAnnouncementChannelId?: string | null;
   syncDiscordNamesToFf14?: boolean;
   upcomingRaiderRoleId?: string | null;

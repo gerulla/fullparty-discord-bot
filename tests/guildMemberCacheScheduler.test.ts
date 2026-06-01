@@ -31,8 +31,9 @@ describe("GuildMemberCacheScheduler", () => {
     const scheduler = createScheduler({
       guilds: [
         createGuild({
-          memberCount: 2,
-          memberIds: ["1", "2"],
+          botMemberIds: ["bot-id"],
+          memberCount: 3,
+          memberIds: ["1", "bot-id", "2"],
         }),
       ],
       store,
@@ -52,8 +53,37 @@ describe("GuildMemberCacheScheduler", () => {
     ).resolves.toMatchObject({
       cachedMemberCount: 2,
       discordUserIds: ["1", "2"],
-      memberCount: 2,
+      memberCount: 3,
       refreshStatus: "fresh",
+    });
+  });
+
+  it("does not refresh guilds that are only installed and not linked", async () => {
+    const store = await createStore();
+    const scheduler = createScheduler({
+      guilds: [
+        createGuild({
+          memberCount: 2,
+          memberIds: ["1", "2"],
+        }),
+      ],
+      linkedGuildIds: [],
+      store,
+    });
+
+    scheduler.start();
+    schedulers.push(scheduler);
+
+    await new Promise((resolve) => {
+      setTimeout(resolve, 50);
+    });
+
+    await expect(
+      store.getSnapshot("guild-id", { includeUserIds: true }),
+    ).resolves.toMatchObject({
+      cachedMemberCount: 0,
+      discordUserIds: [],
+      refreshStatus: "missing",
     });
   });
 
@@ -109,11 +139,13 @@ describe("GuildMemberCacheScheduler", () => {
 
 function createScheduler(options: {
   guilds: unknown[];
+  linkedGuildIds?: string[];
   store: SqliteGuildMemberCacheStore;
 }): GuildMemberCacheScheduler {
   const guildMap = new Map(
     options.guilds.map((guild) => [(guild as { id: string }).id, guild]),
   );
+  const linkedGuildIds = new Set(options.linkedGuildIds ?? ["guild-id"]);
 
   return new GuildMemberCacheScheduler({
     client: {
@@ -130,19 +162,47 @@ function createScheduler(options: {
       warn: () => undefined,
     },
     refreshIntervalMs: 86_400_000,
+    settingsStore: {
+      get: (guildId: string) =>
+        Promise.resolve({
+          guildId,
+          ...(linkedGuildIds.has(guildId)
+            ? { linkedAt: "2026-06-01T10:00:00.000Z" }
+            : {}),
+          syncDiscordNamesToFf14: false,
+        }),
+      update: (guildId: string) =>
+        Promise.resolve({ guildId, syncDiscordNamesToFf14: false }),
+    },
     store: options.store,
     sweepIntervalMs: 10_000,
   });
 }
 
-function createGuild(options: { memberCount: number; memberIds: string[] }): unknown {
+function createGuild(options: {
+  botMemberIds?: string[];
+  memberCount: number;
+  memberIds: string[];
+}): unknown {
+  const botMemberIds = new Set(options.botMemberIds ?? []);
+
   return {
     id: "guild-id",
     memberCount: options.memberCount,
     members: {
       fetch: () =>
         Promise.resolve(
-          new Map(options.memberIds.map((memberId) => [memberId, { id: memberId }])),
+          new Map(
+            options.memberIds.map((memberId) => [
+              memberId,
+              {
+                id: memberId,
+                user: {
+                  bot: botMemberIds.has(memberId),
+                },
+              },
+            ]),
+          ),
         ),
     },
   };

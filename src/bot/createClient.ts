@@ -18,6 +18,10 @@ export function createBotClient(context: BotContext): Client {
 
   client.on(Events.InteractionCreate, createInteractionHandler(context));
   client.on(Events.GuildMemberAdd, (member) => {
+    if (member.user.bot) {
+      return;
+    }
+
     void context.guildMemberCache
       ?.markMemberSeen(member.guild.id, member.id)
       .catch((error: unknown) => {

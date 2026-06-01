@@ -467,6 +467,8 @@ async function dispatchEvent(
   if (event.event === "discord.guild.run_reminder") {
     const data = guildRunReminderDataSchema.parse(event.data);
 
+    await markGuildLinked(options, data.discord_guild_id);
+
     return options.context.guildRunReminderQueue
       ? options.context.guildRunReminderQueue.enqueue({ data, kind: "run_reminder" })
       : processGuildRunReminder(options, data);
@@ -477,6 +479,8 @@ async function dispatchEvent(
     event.event === "discord.guild.run_cancelled"
   ) {
     const data = parseGuildRunCleanupData(event);
+
+    await markGuildLinked(options, data.discord_guild_id);
 
     return options.context.guildRunReminderQueue
       ? options.context.guildRunReminderQueue.enqueue({ data, kind: "run_completed" })
@@ -544,6 +548,7 @@ async function createGuildSnapshotResult(
   options: GuildAutomationProcessorOptions,
   discordGuildId: string,
 ): Promise<ActionResult> {
+  await markGuildLinked(options, discordGuildId);
   const snapshot = await createDiscordGuildSnapshot(
     options.client,
     options.context,
@@ -577,6 +582,19 @@ async function createGuildMembershipSnapshotResult(
     return {
       configured: false,
       discordGuildId: data.discord_guild_id,
+      linked: false,
+      membershipCache: null,
+      refreshQueued: false,
+    };
+  }
+
+  const settings = await options.context.guildSettings.get(data.discord_guild_id);
+
+  if (!settings.linkedAt) {
+    return {
+      configured: true,
+      discordGuildId: data.discord_guild_id,
+      linked: false,
       membershipCache: null,
       refreshQueued: false,
     };
@@ -603,6 +621,7 @@ async function createGuildMembershipSnapshotResult(
   return {
     configured: true,
     discordGuildId: data.discord_guild_id,
+    linked: true,
     membershipCache: serializeGuildMemberCacheSnapshot(snapshot),
     refreshQueued: refreshResult?.queued ?? false,
     ...(refreshResult
@@ -618,7 +637,13 @@ async function updateGuildSettingsFromFullparty(
   options: GuildAutomationProcessorOptions,
   data: z.infer<typeof guildSettingsUpdatedDataSchema>,
 ): Promise<ActionResult> {
+  const current = await options.context.guildSettings.get(data.discord_guild_id);
   const patch = createGuildSettingsPatch(data.settings);
+
+  if (!current.linkedAt) {
+    patch.linkedAt = new Date().toISOString();
+  }
+
   const settings = await options.context.guildSettings.update(
     data.discord_guild_id,
     patch,
@@ -629,6 +654,21 @@ async function updateGuildSettingsFromFullparty(
     settings: serializeGuildSettings(settings),
     updated: true,
   };
+}
+
+async function markGuildLinked(
+  options: GuildAutomationProcessorOptions,
+  discordGuildId: string,
+): Promise<void> {
+  const settings = await options.context.guildSettings.get(discordGuildId);
+
+  if (settings.linkedAt) {
+    return;
+  }
+
+  await options.context.guildSettings.update(discordGuildId, {
+    linkedAt: new Date().toISOString(),
+  });
 }
 
 function createGuildSettingsPatch(
@@ -668,11 +708,12 @@ type GuildSettingsPatchIdKey = keyof Omit<GuildSettingsPatch, "syncDiscordNamesT
 function serializeGuildMemberCacheSnapshot(snapshot: GuildMemberCacheSnapshot): {
   cache_age_seconds: number | null;
   cached_member_count: number;
+  discord_member_count: number | null;
   discord_guild_id: string;
   discord_user_ids?: string[];
   last_error: string | null;
   last_full_refresh_at: string | null;
-  member_count: number | null;
+  member_count: number;
   next_refresh_after: string | null;
   refresh_status: GuildMemberCacheSnapshot["refreshStatus"];
   stale: boolean;
@@ -681,11 +722,12 @@ function serializeGuildMemberCacheSnapshot(snapshot: GuildMemberCacheSnapshot): 
   return {
     cache_age_seconds: snapshot.cacheAgeSeconds,
     cached_member_count: snapshot.cachedMemberCount,
+    discord_member_count: snapshot.memberCount,
     discord_guild_id: snapshot.discordGuildId,
     ...(snapshot.discordUserIds ? { discord_user_ids: snapshot.discordUserIds } : {}),
     last_error: snapshot.lastError,
     last_full_refresh_at: snapshot.lastFullRefreshAt,
-    member_count: snapshot.memberCount,
+    member_count: snapshot.cachedMemberCount,
     next_refresh_after: snapshot.nextRefreshAfter,
     refresh_status: snapshot.refreshStatus,
     stale: snapshot.stale,

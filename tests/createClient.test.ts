@@ -34,7 +34,13 @@ describe("createBotClient", () => {
 
     client.emit(Events.GuildMemberAdd, {
       guild: { id: "guild-id" },
+      id: "bot-user-id",
+      user: { bot: true },
+    } as unknown as GuildMember);
+    client.emit(Events.GuildMemberAdd, {
+      guild: { id: "guild-id" },
       id: "user-id",
+      user: { bot: false },
     } as unknown as GuildMember);
     client.emit(Events.GuildMemberRemove, {
       guild: { id: "guild-id" },

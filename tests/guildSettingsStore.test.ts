@@ -40,6 +40,7 @@ describe("SqliteGuildSettingsStore", () => {
       store.update("guild-id", {
         botLogChannelId: "bot-log-channel-id",
         botModeratorRoleId: "bot-moderator-role-id",
+        linkedAt: "2026-06-01T10:00:00.000Z",
         runAnnouncementChannelId: "run-announcement-channel-id",
         syncDiscordNamesToFf14: true,
         upcomingRaiderRoleId: "upcoming-raider-role-id",
@@ -48,6 +49,7 @@ describe("SqliteGuildSettingsStore", () => {
       botLogChannelId: "bot-log-channel-id",
       botModeratorRoleId: "bot-moderator-role-id",
       guildId: "guild-id",
+      linkedAt: "2026-06-01T10:00:00.000Z",
       runAnnouncementChannelId: "run-announcement-channel-id",
       syncDiscordNamesToFf14: true,
       upcomingRaiderRoleId: "upcoming-raider-role-id",
@@ -64,6 +66,7 @@ describe("SqliteGuildSettingsStore", () => {
             bot_log_channel_id,
             bot_moderator_role_id,
             guild_id,
+            linked_at,
             run_announcement_channel_id,
             sync_discord_names_to_ff14,
             upcoming_raider_role_id
@@ -79,6 +82,7 @@ describe("SqliteGuildSettingsStore", () => {
       bot_log_channel_id: "bot-log-channel-id",
       bot_moderator_role_id: "bot-moderator-role-id",
       guild_id: "guild-id",
+      linked_at: "2026-06-01T10:00:00.000Z",
       run_announcement_channel_id: "run-announcement-channel-id",
       sync_discord_names_to_ff14: 1,
       upcoming_raider_role_id: "upcoming-raider-role-id",
@@ -90,6 +94,7 @@ describe("SqliteGuildSettingsStore", () => {
 
     await store.update("guild-id", {
       botLogChannelId: "bot-log-channel-id",
+      linkedAt: "2026-06-01T10:00:00.000Z",
       syncDiscordNamesToFf14: true,
     });
     store.close();
@@ -101,6 +106,7 @@ describe("SqliteGuildSettingsStore", () => {
     await expect(reopenedStore.get("guild-id")).resolves.toMatchObject({
       botLogChannelId: "bot-log-channel-id",
       guildId: "guild-id",
+      linkedAt: "2026-06-01T10:00:00.000Z",
       syncDiscordNamesToFf14: true,
     });
   });

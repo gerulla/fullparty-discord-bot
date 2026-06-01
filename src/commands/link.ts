@@ -114,6 +114,10 @@ async function linkGuild(
         token,
       }),
   });
+  await context.guildSettings.update(guildId, {
+    linkedAt: new Date().toISOString(),
+  });
+  await context.guildMemberCacheScheduler?.enqueueRefresh(guildId, "guild_linked");
 }
 
 async function linkUser(

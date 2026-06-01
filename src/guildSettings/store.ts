@@ -14,6 +14,7 @@ type GuildSettingsRow = {
   bot_log_channel_id: string | null;
   bot_moderator_role_id: string | null;
   guild_id: string;
+  linked_at: string | null;
   run_announcement_channel_id: string | null;
   sync_discord_names_to_ff14: number;
   upcoming_raider_role_id: string | null;
@@ -36,6 +37,7 @@ export class SqliteGuildSettingsStore implements GuildSettingsStore {
             bot_log_channel_id,
             bot_moderator_role_id,
             guild_id,
+            linked_at,
             run_announcement_channel_id,
             sync_discord_names_to_ff14,
             upcoming_raider_role_id,
@@ -65,14 +67,16 @@ export class SqliteGuildSettingsStore implements GuildSettingsStore {
             bot_log_channel_id,
             bot_moderator_role_id,
             guild_id,
+            linked_at,
             run_announcement_channel_id,
             sync_discord_names_to_ff14,
             upcoming_raider_role_id,
             updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(guild_id) DO UPDATE SET
             bot_log_channel_id = excluded.bot_log_channel_id,
             bot_moderator_role_id = excluded.bot_moderator_role_id,
+            linked_at = excluded.linked_at,
             run_announcement_channel_id = excluded.run_announcement_channel_id,
             sync_discord_names_to_ff14 = excluded.sync_discord_names_to_ff14,
             upcoming_raider_role_id = excluded.upcoming_raider_role_id,
@@ -83,6 +87,7 @@ export class SqliteGuildSettingsStore implements GuildSettingsStore {
         next.botLogChannelId ?? null,
         next.botModeratorRoleId ?? null,
         next.guildId,
+        next.linkedAt ?? null,
         next.runAnnouncementChannelId ?? null,
         next.syncDiscordNamesToFf14 ? 1 : 0,
         next.upcomingRaiderRoleId ?? null,
@@ -102,6 +107,7 @@ export class SqliteGuildSettingsStore implements GuildSettingsStore {
         guild_id TEXT PRIMARY KEY,
         bot_log_channel_id TEXT,
         bot_moderator_role_id TEXT,
+        linked_at TEXT,
         run_announcement_channel_id TEXT,
         upcoming_raider_role_id TEXT,
         sync_discord_names_to_ff14 INTEGER NOT NULL DEFAULT 0
@@ -110,6 +116,7 @@ export class SqliteGuildSettingsStore implements GuildSettingsStore {
       )
     `);
     this.addColumnIfMissing("guild_settings", "bot_moderator_role_id", "TEXT");
+    this.addColumnIfMissing("guild_settings", "linked_at", "TEXT");
   }
 
   private addColumnIfMissing(
@@ -155,6 +162,7 @@ function mergeGuildSettingsPatch(
     "runAnnouncementChannelId",
     current.runAnnouncementChannelId,
   );
+  const linkedAt = getPatchValue(patch, "linkedAt", current.linkedAt);
   const upcomingRaiderRoleId = getPatchValue(
     patch,
     "upcomingRaiderRoleId",
@@ -171,6 +179,10 @@ function mergeGuildSettingsPatch(
 
   if (runAnnouncementChannelId) {
     next.runAnnouncementChannelId = runAnnouncementChannelId;
+  }
+
+  if (linkedAt) {
+    next.linkedAt = linkedAt;
   }
 
   if (upcomingRaiderRoleId) {
@@ -204,6 +216,10 @@ function rowToGuildSettings(row: GuildSettingsRow): GuildSettings {
 
   if (row.run_announcement_channel_id) {
     settings.runAnnouncementChannelId = row.run_announcement_channel_id;
+  }
+
+  if (row.linked_at) {
+    settings.linkedAt = row.linked_at;
   }
 
   if (row.upcoming_raider_role_id) {

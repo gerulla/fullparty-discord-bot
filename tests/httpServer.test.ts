@@ -1368,6 +1368,7 @@ describe("Fullparty webhook server", () => {
             botLogChannelId: "bot-log-channel-id",
             botModeratorRoleId: "bot-moderator-role-id",
             guildId,
+            linkedAt: "2026-06-01T10:00:00.000Z",
             runAnnouncementChannelId: "run-announcement-channel-id",
             syncDiscordNamesToFf14: true,
             upcomingRaiderRoleId: "template-role-id",
@@ -1504,6 +1505,7 @@ describe("Fullparty webhook server", () => {
             settings: {
               bot_log_channel_id: "bot-log-channel-id",
               bot_moderator_role_id: "bot-moderator-role-id",
+              linked_at: "2026-06-01T10:00:00.000Z",
               run_announcement_channel_id: "run-announcement-channel-id",
               run_role_template_id: "template-role-id",
               sync_discord_names_to_ff14: true,
@@ -1520,6 +1522,15 @@ describe("Fullparty webhook server", () => {
     const refreshRequests: unknown[] = [];
     const context: BotContext = {
       ...createContext(),
+      guildSettings: {
+        get: (guildId) =>
+          Promise.resolve({
+            guildId,
+            linkedAt: "2026-06-01T10:00:00.000Z",
+            syncDiscordNamesToFf14: false,
+          }),
+        update: (guildId) => Promise.resolve({ guildId, syncDiscordNamesToFf14: false }),
+      },
       guildMemberCache: {
         getSnapshot: (guildId: string, options?: { includeUserIds?: boolean }) =>
           Promise.resolve({
@@ -1576,11 +1587,13 @@ describe("Fullparty webhook server", () => {
         result: {
           configured: true,
           discordGuildId: "guild-id",
+          linked: true,
           membershipCache: {
             cached_member_count: 2,
+            discord_member_count: 3,
             discord_guild_id: "guild-id",
             discord_user_ids: ["123", "456"],
-            member_count: 3,
+            member_count: 2,
             refresh_status: "stale",
             stale: true,
           },
@@ -1596,6 +1609,45 @@ describe("Fullparty webhook server", () => {
         reason: "dashboard_request",
       },
     ]);
+  });
+
+  it("does not return guild member IDs when the guild is not linked", async () => {
+    const context: BotContext = {
+      ...createContext(),
+      guildMemberCache: {
+        getSnapshot: () => {
+          throw new Error("Unlinked guilds should not read member cache snapshots.");
+        },
+      } as never,
+      guildMemberCacheScheduler: {
+        enqueueRefresh: () => {
+          throw new Error("Unlinked guilds should not queue member cache refreshes.");
+        },
+      } as never,
+    };
+    const baseUrl = await listen(createTestServer({ context }));
+
+    await expect(
+      postAction(baseUrl, {
+        data: {
+          discord_guild_id: "guild-id",
+          include_member_ids: true,
+        },
+        event: "discord.guild.membership_snapshot_requested",
+      }),
+    ).resolves.toMatchObject({
+      body: {
+        event: "discord.guild.membership_snapshot_requested",
+        result: {
+          configured: true,
+          discordGuildId: "guild-id",
+          linked: false,
+          membershipCache: null,
+          refreshQueued: false,
+        },
+      },
+      status: 200,
+    });
   });
 
   it("updates guild settings from FullParty dashboard events", async () => {
@@ -1632,6 +1684,7 @@ describe("Fullparty webhook server", () => {
           settings: {
             bot_log_channel_id: null,
             bot_moderator_role_id: "bot-moderator-role-id",
+            linked_at: expect.any(String) as string,
             run_role_template_id: "template-role-id",
             sync_discord_names_to_ff14: true,
           },
@@ -1661,6 +1714,7 @@ describe("Fullparty webhook server", () => {
         patch: {
           botLogChannelId: null,
           botModeratorRoleId: "bot-moderator-role-id",
+          linkedAt: expect.any(String) as string,
           syncDiscordNamesToFf14: true,
           upcomingRaiderRoleId: "template-role-id",
         },

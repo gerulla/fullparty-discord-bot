@@ -83,6 +83,7 @@ export type DiscordGuildSnapshotChannel = {
 export type DiscordGuildSnapshotSettings = {
   bot_log_channel_id: string | null;
   bot_moderator_role_id: string | null;
+  linked_at: string | null;
   run_announcement_channel_id: string | null;
   run_role_template_id: string | null;
   sync_discord_names_to_ff14: boolean;
@@ -124,6 +125,7 @@ export function serializeGuildSettings(
   return {
     bot_log_channel_id: settings.botLogChannelId ?? null,
     bot_moderator_role_id: settings.botModeratorRoleId ?? null,
+    linked_at: settings.linkedAt ?? null,
     run_announcement_channel_id: settings.runAnnouncementChannelId ?? null,
     run_role_template_id: settings.upcomingRaiderRoleId ?? null,
     sync_discord_names_to_ff14: settings.syncDiscordNamesToFf14,

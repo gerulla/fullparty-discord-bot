@@ -60,6 +60,7 @@ const fullpartyOptions = config.FULLPARTY_API_TOKEN
       baseUrl: config.FULLPARTY_API_BASE_URL,
     };
 const guildMemberCache = new SqliteGuildMemberCacheStore(config.DATABASE_PATH);
+const guildSettings = new SqliteGuildSettingsStore(config.DATABASE_PATH);
 
 const botContext: BotContext = {
   failureReporter: new SqliteFailureReporter({
@@ -70,7 +71,7 @@ const botContext: BotContext = {
   fullpartyWebBaseUrl: config.FULLPARTY_WEB_BASE_URL,
   guildMemberCache,
   guildRunRoles: new SqliteGuildRunRoleStore(config.DATABASE_PATH),
-  guildSettings: new SqliteGuildSettingsStore(config.DATABASE_PATH),
+  guildSettings,
   logger,
   payloadCommandAllowedUserId: config.PAYLOAD_COMMAND_ALLOWED_USER_ID,
   payloads: new LatestPayloadStore(),
@@ -85,6 +86,7 @@ const guildMemberCacheScheduler = new GuildMemberCacheScheduler({
   purgeAfterMs: config.GUILD_MEMBER_CACHE_PURGE_AFTER_MS,
   refreshIntervalMs: config.GUILD_MEMBER_CACHE_REFRESH_INTERVAL_MS,
   retryAfterMs: config.GUILD_MEMBER_CACHE_RETRY_AFTER_MS,
+  settingsStore: guildSettings,
   store: guildMemberCache,
   sweepIntervalMs: config.GUILD_MEMBER_CACHE_SWEEP_INTERVAL_MS,
 });

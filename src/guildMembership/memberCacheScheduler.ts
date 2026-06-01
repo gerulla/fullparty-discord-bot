@@ -1,5 +1,6 @@
 import type { Client, Guild } from "discord.js";
 
+import type { GuildSettingsStore } from "../guildSettings/store.js";
 import {
   recordFailureSafely,
   serializeFailureError,
@@ -19,6 +20,7 @@ export type GuildMemberCacheRefreshReason =
   | "missing_cache"
   | "stale_cache"
   | "dashboard_request"
+  | "guild_linked"
   | "guild_joined";
 
 export type GuildMemberCacheSchedulerEnqueueResult = {
@@ -42,6 +44,7 @@ export type GuildMemberCacheSchedulerOptions = {
   purgeAfterMs?: number | undefined;
   refreshIntervalMs?: number | undefined;
   retryAfterMs?: number | undefined;
+  settingsStore: GuildSettingsStore;
   store: GuildMemberCacheStore;
   sweepIntervalMs?: number | undefined;
 };
@@ -64,6 +67,7 @@ export class GuildMemberCacheScheduler {
   private readonly purgeAfterMs: number;
   private readonly refreshIntervalMs: number;
   private readonly retryAfterMs: number;
+  private readonly settingsStore: GuildSettingsStore;
   private readonly store: GuildMemberCacheStore;
   private readonly sweepIntervalMs: number;
   private activeRefreshCount = 0;
@@ -92,6 +96,7 @@ export class GuildMemberCacheScheduler {
       60_000,
       Math.floor(options.retryAfterMs ?? defaultRetryAfterMs),
     );
+    this.settingsStore = options.settingsStore;
     this.store = options.store;
     this.sweepIntervalMs = Math.max(
       10_000,
@@ -207,6 +212,12 @@ export class GuildMemberCacheScheduler {
   private async getRefreshReason(
     guild: Guild,
   ): Promise<GuildMemberCacheRefreshReason | undefined> {
+    const settings = await this.settingsStore.get(guild.id);
+
+    if (!settings.linkedAt) {
+      return undefined;
+    }
+
     const snapshot = await this.store.getSnapshot(guild.id);
     const memberCount = getGuildMemberCount(guild);
 
@@ -291,7 +302,7 @@ export class GuildMemberCacheScheduler {
       });
 
       const members = await guild.members.fetch();
-      const memberIds = [...members.keys()];
+      const memberIds = getHumanMemberIds(members);
       const refreshedAt = new Date();
 
       await this.store.replaceGuildMembers(guild.id, memberIds, {
@@ -360,6 +371,20 @@ function isCacheDue(snapshot: GuildMemberCacheSnapshot): boolean {
 
 function getGuildMemberCount(guild: Guild): number | null {
   return typeof guild.memberCount === "number" ? guild.memberCount : null;
+}
+
+function getHumanMemberIds(members: Iterable<[string, unknown]>): string[] {
+  return [...members].flatMap(([memberId, member]) =>
+    isBotGuildMember(member) ? [] : [memberId],
+  );
+}
+
+function isBotGuildMember(member: unknown): boolean {
+  return isRecord(member) && isRecord(member.user) && member.user.bot === true;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function getSchedulerHealthStatus(

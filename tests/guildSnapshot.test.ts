@@ -69,6 +69,7 @@ describe("createDiscordGuildSnapshot", () => {
       settings: {
         bot_log_channel_id: "bot-log-channel-id",
         bot_moderator_role_id: "bot-moderator-role-id",
+        linked_at: "2026-06-01T10:00:00.000Z",
         run_announcement_channel_id: "run-announcement-channel-id",
         run_role_template_id: "template-role-id",
         sync_discord_names_to_ff14: true,
@@ -225,6 +226,7 @@ function createContext(): BotContext {
           botLogChannelId: "bot-log-channel-id",
           botModeratorRoleId: "bot-moderator-role-id",
           guildId,
+          linkedAt: "2026-06-01T10:00:00.000Z",
           runAnnouncementChannelId: "run-announcement-channel-id",
           syncDiscordNamesToFf14: true,
           upcomingRaiderRoleId: "template-role-id",
