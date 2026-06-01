@@ -18,6 +18,7 @@ import { helpCommand } from "../src/commands/help.js";
 import { linkCommand } from "../src/commands/link.js";
 import { payloadCommand } from "../src/commands/payload.js";
 import { pingCommand } from "../src/commands/ping.js";
+import { postRunsCommand } from "../src/commands/postRuns.js";
 import { runsCommand } from "../src/commands/runs.js";
 import { FullpartyApiClient } from "../src/fullparty/client.js";
 import { LatestPayloadStore } from "../src/payloads/latestPayloadStore.js";
@@ -918,6 +919,239 @@ describe("command execution", () => {
     );
   });
 
+  it("posts upcoming FullParty runs to the configured member-facing channel", async () => {
+    const deferReply = createAsyncRecorder();
+    const editReply = createAsyncRecorder();
+    const sentMessages: unknown[] = [];
+    const guildRunsResponse = {
+      data: [
+        {
+          activity_type: {
+            name: {
+              en: "Futures Rewritten (Ultimate)",
+            },
+          },
+          counts: {
+            assigned_slots: 2,
+            total_applicants: 3,
+            total_slots: 3,
+          },
+          display_name: "Futures Rewritten (Ultimate)",
+          group: {
+            name: "Guild Linked Group",
+            slug: "guildgrp",
+          },
+          host: {
+            avatar_url: "https://example.com/host-avatar.png",
+            character: {
+              avatar_url: "https://example.com/host-character.png",
+              datacenter: "Light",
+              id: 456,
+              name: "Host Character",
+              world: "Twintania",
+            },
+            discord_user_id: "800000000000000001",
+            name: "Host Person",
+            user_id: 123,
+          },
+          id: 123,
+          starts_at: "2026-06-01T20:00:00+00:00",
+          target_prog_point: {
+            key: "titan-cleanup",
+            label: {
+              en: "Titan Cleanup",
+            },
+            order: 3,
+          },
+          target_prog_point_key: "titan-cleanup",
+          title: "Friday prog",
+          urls: {
+            application: "/groups/guildgrp/activities/123/application",
+            overview: "/groups/guildgrp/activities/123",
+          },
+        },
+      ],
+      meta: {
+        group: {
+          name: "Guild Linked Group",
+          slug: "guildgrp",
+        },
+      },
+    };
+    const calls: FetchCall[] = [];
+    const fetcher = createRecordingJsonFetcher(guildRunsResponse, calls);
+    const context = createLinkedGuildContext(fetcher);
+
+    await postRunsCommand.execute(
+      {
+        channel: {
+          send: () => {
+            throw new Error("Should not post in the triggering channel.");
+          },
+        },
+        channelId: "trigger-channel-id",
+        client: {
+          channels: {
+            fetch: (channelId: string) =>
+              Promise.resolve({
+                id: channelId,
+                send: (message: unknown) => {
+                  sentMessages.push(message);
+                  return Promise.resolve({ id: "posted-message-id" });
+                },
+              }),
+          },
+        },
+        deferReply: deferReply.fn,
+        editReply: editReply.fn,
+        guildId: "1379217636696789022",
+        inGuild: () => true,
+        memberPermissions: new PermissionsBitField(PermissionFlagsBits.ManageGuild),
+        options: {
+          getBoolean: () => null,
+        },
+        user: {
+          id: "moderator-id",
+        },
+      } as unknown as ChatInputCommandInteraction,
+      context,
+    );
+
+    expect(deferReply.calls).toEqual([[{ flags: MessageFlags.Ephemeral }]]);
+    expect(sentMessages).toEqual([
+      {
+        allowedMentions: {
+          parse: [],
+          users: ["800000000000000001"],
+        },
+        content: [
+          "Here are the upcoming FullParty runs for **Guild Linked Group**:",
+          "",
+          "**Friday prog - Titan Cleanup**",
+          "2/3 Participants - 3 Applications - <t:1780344000:F> (<t:1780344000:R>)",
+          "Hosted by <@800000000000000001> - [Apply Here](http://fullparty.test/groups/guildgrp/activities/123/application)",
+          "",
+          "-# For the full schedule of **Guild Linked Group** [Click Here](http://fullparty.test/groups/guildgrp/runs)",
+        ].join("\n"),
+      },
+    ]);
+    expect(editReply.calls).toEqual([
+      [
+        {
+          content: "Posted the upcoming runs summary in <#run-announcement-channel-id>.",
+        },
+      ],
+    ]);
+    expect(fetchInputToUrl(calls[0]?.input)).toBe(
+      "http://fullparty.test/api/integrations/discord-guilds/1379217636696789022/upcoming-runs?limit=25",
+    );
+    expect(context.payloads.get()).toMatchObject({
+      payload: {
+        command: "postruns",
+        discord_guild_id: "1379217636696789022",
+        ok: true,
+        response: guildRunsResponse,
+        source: "fullparty.api",
+      },
+      source: "FullParty /postruns API response",
+    });
+  });
+
+  it("posts upcoming FullParty runs in the triggering channel when requested", async () => {
+    const deferReply = createAsyncRecorder();
+    const editReply = createAsyncRecorder();
+    const sentMessages: unknown[] = [];
+    const context = createLinkedGuildContext(
+      createJsonFetcher({
+        data: [
+          {
+            counts: {
+              applications: 1,
+              capacity: 8,
+              participants: 4,
+            },
+            display_name: "No custom title",
+            group: {
+              name: "Guild Linked Group",
+              slug: "guildgrp",
+            },
+            host: {
+              character: {
+                name: "Giki Chomusuke",
+                world: "Lich",
+              },
+              discord_user_id: null,
+              name: "Host Person",
+              user_id: 123,
+            },
+            starts_at: "2026-06-01T20:00:00+00:00",
+            urls: {
+              overview: "/groups/guildgrp/activities/456",
+            },
+          },
+        ],
+        meta: {
+          group: {
+            name: "Guild Linked Group",
+            slug: "guildgrp",
+          },
+        },
+      }),
+    );
+
+    await postRunsCommand.execute(
+      {
+        channel: {
+          send: (message: unknown) => {
+            sentMessages.push(message);
+            return Promise.resolve({ id: "posted-message-id" });
+          },
+        },
+        channelId: "trigger-channel-id",
+        client: {
+          channels: {
+            fetch: () => {
+              throw new Error("Should not fetch the configured channel.");
+            },
+          },
+        },
+        deferReply: deferReply.fn,
+        editReply: editReply.fn,
+        guildId: "1379217636696789022",
+        inGuild: () => true,
+        memberPermissions: new PermissionsBitField(PermissionFlagsBits.ManageGuild),
+        options: {
+          getBoolean: () => true,
+        },
+        user: {
+          id: "moderator-id",
+        },
+      } as unknown as ChatInputCommandInteraction,
+      context,
+    );
+
+    expect(deferReply.calls).toEqual([[{ flags: MessageFlags.Ephemeral }]]);
+    expect(sentMessages[0]).toMatchObject({
+      content: expect.stringContaining("**No custom title**") as string,
+    });
+    expect(sentMessages[0]).toMatchObject({
+      allowedMentions: {
+        parse: [],
+        users: [],
+      },
+      content: expect.stringContaining(
+        "Hosted by Giki Chomusuke [Lich] - [Apply Here](http://fullparty.test/groups/guildgrp/activities/456)",
+      ) as string,
+    });
+    expect(editReply.calls).toEqual([
+      [
+        {
+          content: "Posted the upcoming runs summary in this channel.",
+        },
+      ],
+    ]);
+  });
+
   it("runs role assignment from a /guildruns paginator button", async () => {
     const deferReply = createAsyncRecorder();
     const editReply = createAsyncRecorder();
@@ -1745,6 +1979,7 @@ function createLinkedGuildContext(
       Promise.resolve({
         guildId,
         linkedAt: "2026-05-30T00:00:00.000Z",
+        runAnnouncementChannelId: "run-announcement-channel-id",
         syncDiscordNamesToFf14: false,
         upcomingRaiderRoleId: "template-role-id",
       }),
@@ -1752,6 +1987,7 @@ function createLinkedGuildContext(
       Promise.resolve({
         guildId,
         linkedAt: "2026-05-30T00:00:00.000Z",
+        runAnnouncementChannelId: "run-announcement-channel-id",
         syncDiscordNamesToFf14: false,
         upcomingRaiderRoleId: "template-role-id",
       }),

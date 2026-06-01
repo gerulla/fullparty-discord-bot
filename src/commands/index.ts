@@ -9,6 +9,7 @@ import { helpCommand } from "./help.js";
 import { linkCommand } from "./link.js";
 import { payloadCommand } from "./payload.js";
 import { pingCommand } from "./ping.js";
+import { postRunsCommand } from "./postRuns.js";
 import { runsCommand } from "./runs.js";
 import { setupCommand } from "./setup.js";
 import type { ChatInputCommand } from "./types.js";
@@ -25,6 +26,7 @@ export const commands = [
   helpCommand,
   linkCommand,
   pingCommand,
+  postRunsCommand,
   payloadCommand,
   runsCommand,
   setupCommand,

@@ -17,6 +17,7 @@ describe("commands", () => {
       "help",
       "link",
       "ping",
+      "postruns",
       "payload",
       "runs",
       "setup",
@@ -31,6 +32,7 @@ describe("commands", () => {
     const link = commands.find((command) => command.name === "link");
     const payload = commands.find((command) => command.name === "payload");
     const ping = commands.find((command) => command.name === "ping");
+    const postruns = commands.find((command) => command.name === "postruns");
     const runs = commands.find((command) => command.name === "runs");
     const setup = commands.find((command) => command.name === "setup");
 
@@ -43,6 +45,7 @@ describe("commands", () => {
     expect(link).toBeDefined();
     expect(payload).toBeDefined();
     expect(ping).toBeDefined();
+    expect(postruns).toBeDefined();
     expect(runs).toBeDefined();
     expect(setup).toBeDefined();
 
@@ -56,11 +59,12 @@ describe("commands", () => {
       !link ||
       !payload ||
       !ping ||
+      !postruns ||
       !runs ||
       !setup
     ) {
       throw new Error(
-        "Expected applications, assignrunrole, clearrole, faq, guildruns, help, link, ping, payload, runs, and setup commands to be registered.",
+        "Expected applications, assignrunrole, clearrole, faq, guildruns, help, link, ping, postruns, payload, runs, and setup commands to be registered.",
       );
     }
 
@@ -157,6 +161,12 @@ describe("commands", () => {
     expect(guildruns.contexts).toEqual([InteractionContextType.Guild]);
     expect(guildruns.options?.[0]).toMatchObject({
       name: "limit",
+      required: false,
+    });
+    expect(postruns.integration_types).toEqual([ApplicationIntegrationType.GuildInstall]);
+    expect(postruns.contexts).toEqual([InteractionContextType.Guild]);
+    expect(postruns.options?.[0]).toMatchObject({
+      name: "posthere",
       required: false,
     });
     expect(assignrunrole.integration_types).toEqual([
