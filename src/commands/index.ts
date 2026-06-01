@@ -1,8 +1,10 @@
 import type { RESTPostAPIChatInputApplicationCommandsJSONBody } from "discord.js";
 
 import { applicationsCommand } from "./applications.js";
+import { assignRunRoleCommand } from "./assignRunRole.js";
 import { clearRoleCommand } from "./clearRole.js";
 import { faqCommand } from "./faq.js";
+import { guildRunsCommand } from "./guildRuns.js";
 import { helpCommand } from "./help.js";
 import { linkCommand } from "./link.js";
 import { payloadCommand } from "./payload.js";
@@ -16,8 +18,10 @@ import type { ChatInputCommand } from "./types.js";
 
 export const commands = [
   applicationsCommand,
+  assignRunRoleCommand,
   clearRoleCommand,
   faqCommand,
+  guildRunsCommand,
   helpCommand,
   linkCommand,
   pingCommand,

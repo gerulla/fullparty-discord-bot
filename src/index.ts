@@ -30,6 +30,9 @@ const { SqliteGuildMemberCacheStore } =
 console.log("[FullParty Bot] Loading failure reporter module.");
 const { SqliteFailureReporter } = await import("./health/failureReporter.js");
 
+console.log("[FullParty Bot] Loading user DM rate limiter module.");
+const { UserDmRateLimiter } = await import("./dm/userDmRateLimiter.js");
+
 console.log("[FullParty Bot] Loading payload store module.");
 const { LatestPayloadStore } = await import("./payloads/latestPayloadStore.js");
 
@@ -61,12 +64,13 @@ const fullpartyOptions = config.FULLPARTY_API_TOKEN
     };
 const guildMemberCache = new SqliteGuildMemberCacheStore(config.DATABASE_PATH);
 const guildSettings = new SqliteGuildSettingsStore(config.DATABASE_PATH);
+const failureReporter = new SqliteFailureReporter({
+  databasePath: config.DATABASE_PATH,
+  logFilePath: config.BOT_FAILURE_LOG_PATH,
+});
 
 const botContext: BotContext = {
-  failureReporter: new SqliteFailureReporter({
-    databasePath: config.DATABASE_PATH,
-    logFilePath: config.BOT_FAILURE_LOG_PATH,
-  }),
+  failureReporter,
   fullparty: new FullpartyApiClient(fullpartyOptions),
   fullpartyWebBaseUrl: config.FULLPARTY_WEB_BASE_URL,
   guildMemberCache,
@@ -75,6 +79,12 @@ const botContext: BotContext = {
   logger,
   payloadCommandAllowedUserId: config.PAYLOAD_COMMAND_ALLOWED_USER_ID,
   payloads: new LatestPayloadStore(),
+  userDmRateLimiter: new UserDmRateLimiter({
+    failureReporter,
+    limit: config.USER_DM_RATE_LIMIT_COUNT,
+    logger,
+    windowMs: config.USER_DM_RATE_LIMIT_WINDOW_MS,
+  }),
 };
 
 const client = createBotClient(botContext);
@@ -127,6 +137,7 @@ const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
   await stopWebhookServer(webhookServer);
   await guildMemberCacheScheduler.stop();
   await guildRunReminderQueue.stop();
+  botContext.userDmRateLimiter?.stop();
   botContext.failureReporter?.close?.();
   botContext.guildMemberCache?.close?.();
   botContext.guildRunRoles?.close?.();

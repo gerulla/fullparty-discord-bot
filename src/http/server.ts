@@ -535,6 +535,15 @@ export async function processGuildRunReminder(
   };
 }
 
+export async function processGuildRunRoleAssignment(
+  options: GuildAutomationProcessorOptions,
+  data: GuildRunReminderData,
+): Promise<ActionResult> {
+  const settings = await options.context.guildSettings.get(data.discord_guild_id);
+
+  return assignUpcomingRaiderRole(options, data, settings);
+}
+
 export async function processGuildRunCompleted(
   options: GuildAutomationProcessorOptions,
   data: GuildRunCompletedData,
@@ -2208,6 +2217,20 @@ function handleHealthcheckRequest(
 }
 
 async function sendUserDm(
+  options: WebhookServerOptions,
+  discordUserId: string,
+  messageOptions: MessageCreateOptions,
+): Promise<ActionResult> {
+  const operation = () => sendUserDmNow(options, discordUserId, messageOptions);
+
+  if (options.context.userDmRateLimiter) {
+    return options.context.userDmRateLimiter.send(discordUserId, operation);
+  }
+
+  return operation();
+}
+
+async function sendUserDmNow(
   options: WebhookServerOptions,
   discordUserId: string,
   messageOptions: MessageCreateOptions,

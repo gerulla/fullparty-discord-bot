@@ -44,6 +44,8 @@ function createHelpMessage(fullpartyWebBaseUrl: string): string {
     "`/applications` - Show your FullParty applications. DM only. Requires a linked FullParty account.",
     "`/faq` - Explain how the Template Role, Bot Moderator Role, and Member-Facing Channel work.",
     "`/setup` - Configure server channels, roles, moderator access, and sync preferences. Server only. Requires Manage Server.",
+    "`/guildruns` - Show upcoming FullParty runs for this server. Server only. Requires Manage Server or the configured bot moderator role.",
+    "`/assignrunrole run_id:<id>` - Manually assign the temporary run role for a run starting within 60 minutes, with a 15-minute grace period after start. Server only.",
     "`/clearrole role:<role>` - Delete a stuck temporary FullParty run role. Server only. Requires Manage Server or the configured bot moderator role.",
     "`/ping` - Quick bot responsiveness check.",
     "`/help` - Show this message.",

@@ -1,4 +1,5 @@
 import type { FullpartyApiClient } from "../fullparty/client.js";
+import type { UserDmRateLimiter } from "../dm/userDmRateLimiter.js";
 import type { GuildRunRoleStore } from "../guildAutomation/runRoleStore.js";
 import type { GuildRunReminderQueue } from "../guildAutomation/runReminderQueue.js";
 import type { GuildMemberCacheScheduler } from "../guildMembership/memberCacheScheduler.js";
@@ -20,4 +21,5 @@ export type BotContext = {
   logger: Logger;
   payloadCommandAllowedUserId?: string | undefined;
   payloads: LatestPayloadStore;
+  userDmRateLimiter?: UserDmRateLimiter | undefined;
 };

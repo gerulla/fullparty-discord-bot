@@ -10,8 +10,10 @@ describe("commands", () => {
 
     expect(commands.map((command) => command.name)).toEqual([
       "applications",
+      "assignrunrole",
       "clearrole",
       "faq",
+      "guildruns",
       "help",
       "link",
       "ping",
@@ -21,8 +23,10 @@ describe("commands", () => {
     ]);
 
     const applications = commands.find((command) => command.name === "applications");
+    const assignrunrole = commands.find((command) => command.name === "assignrunrole");
     const clearrole = commands.find((command) => command.name === "clearrole");
     const faq = commands.find((command) => command.name === "faq");
+    const guildruns = commands.find((command) => command.name === "guildruns");
     const help = commands.find((command) => command.name === "help");
     const link = commands.find((command) => command.name === "link");
     const payload = commands.find((command) => command.name === "payload");
@@ -31,8 +35,10 @@ describe("commands", () => {
     const setup = commands.find((command) => command.name === "setup");
 
     expect(applications).toBeDefined();
+    expect(assignrunrole).toBeDefined();
     expect(clearrole).toBeDefined();
     expect(faq).toBeDefined();
+    expect(guildruns).toBeDefined();
     expect(help).toBeDefined();
     expect(link).toBeDefined();
     expect(payload).toBeDefined();
@@ -42,8 +48,10 @@ describe("commands", () => {
 
     if (
       !applications ||
+      !assignrunrole ||
       !clearrole ||
       !faq ||
+      !guildruns ||
       !help ||
       !link ||
       !payload ||
@@ -52,7 +60,7 @@ describe("commands", () => {
       !setup
     ) {
       throw new Error(
-        "Expected applications, clearrole, faq, help, link, ping, payload, runs, and setup commands to be registered.",
+        "Expected applications, assignrunrole, clearrole, faq, guildruns, help, link, ping, payload, runs, and setup commands to be registered.",
       );
     }
 
@@ -143,6 +151,22 @@ describe("commands", () => {
       ApplicationIntegrationType.GuildInstall,
     ]);
     expect(clearrole.contexts).toEqual([InteractionContextType.Guild]);
+    expect(guildruns.integration_types).toEqual([
+      ApplicationIntegrationType.GuildInstall,
+    ]);
+    expect(guildruns.contexts).toEqual([InteractionContextType.Guild]);
+    expect(guildruns.options?.[0]).toMatchObject({
+      name: "limit",
+      required: false,
+    });
+    expect(assignrunrole.integration_types).toEqual([
+      ApplicationIntegrationType.GuildInstall,
+    ]);
+    expect(assignrunrole.contexts).toEqual([InteractionContextType.Guild]);
+    expect(assignrunrole.options?.[0]).toMatchObject({
+      name: "run_id",
+      required: true,
+    });
     expect(setup.integration_types).toEqual([ApplicationIntegrationType.GuildInstall]);
     expect(setup.contexts).toEqual([InteractionContextType.Guild]);
   });

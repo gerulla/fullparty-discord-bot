@@ -20,6 +20,11 @@ export type FullpartyDiscordGuildLinkRequest = {
   token: string;
 };
 export type FullpartyDiscordGuildLinkResponse = unknown;
+export type FullpartyDiscordGuildRunRoleAssignmentResponse = unknown;
+export type FullpartyDiscordGuildUpcomingRunsOptions = {
+  limit?: number | undefined;
+};
+export type FullpartyDiscordGuildUpcomingRunsResponse = unknown;
 export type FullpartyDiscordUserLinkRequest = {
   avatarUrl?: string;
   discordUserId: string;
@@ -69,6 +74,31 @@ export class FullpartyApiClient {
   ): Promise<FullpartyDiscordUserUpcomingRunsResponse> {
     return this.request<FullpartyDiscordUserUpcomingRunsResponse>(
       `integrations/discord-users/${encodeURIComponent(discordId)}/upcoming-runs`,
+    );
+  }
+
+  public async getDiscordGuildUpcomingRuns(
+    discordGuildId: string,
+    options: FullpartyDiscordGuildUpcomingRunsOptions = {},
+  ): Promise<FullpartyDiscordGuildUpcomingRunsResponse> {
+    const path = `integrations/discord-guilds/${encodeURIComponent(discordGuildId)}/upcoming-runs`;
+    const searchParams = new URLSearchParams();
+
+    if (typeof options.limit === "number") {
+      searchParams.set("limit", String(options.limit));
+    }
+
+    return this.request<FullpartyDiscordGuildUpcomingRunsResponse>(
+      searchParams.size > 0 ? `${path}?${searchParams.toString()}` : path,
+    );
+  }
+
+  public async getDiscordGuildRunRoleAssignment(
+    discordGuildId: string,
+    runId: number,
+  ): Promise<FullpartyDiscordGuildRunRoleAssignmentResponse> {
+    return this.request<FullpartyDiscordGuildRunRoleAssignmentResponse>(
+      `integrations/discord-guilds/${encodeURIComponent(discordGuildId)}/runs/${encodeURIComponent(String(runId))}/role-assignment`,
     );
   }
 

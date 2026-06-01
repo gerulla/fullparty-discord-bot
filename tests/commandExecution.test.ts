@@ -8,9 +8,11 @@ import { describe, expect, it } from "vitest";
 
 import type { BotContext } from "../src/bot/context.js";
 import { applicationsCommand } from "../src/commands/applications.js";
+import { assignRunRoleCommand } from "../src/commands/assignRunRole.js";
 import { clearRoleCommand } from "../src/commands/clearRole.js";
 import { faqCommand } from "../src/commands/faq.js";
 import { fullpartyCommand } from "../src/commands/fullparty.js";
+import { guildRunsCommand } from "../src/commands/guildRuns.js";
 import { helpCommand } from "../src/commands/help.js";
 import { linkCommand } from "../src/commands/link.js";
 import { payloadCommand } from "../src/commands/payload.js";
@@ -577,6 +579,363 @@ describe("command execution", () => {
     });
   });
 
+  it("shows upcoming FullParty runs for a linked Discord guild", async () => {
+    const deferReply = createAsyncRecorder();
+    const editReply = createAsyncRecorder();
+    const guildRunsResponse = {
+      data: [
+        {
+          activity_type: {
+            difficulty: "ultimate",
+            id: 55,
+            name: {
+              en: "Futures Rewritten (Ultimate)",
+            },
+          },
+          datacenter: "Light",
+          display_name: "Friday prog",
+          duration_hours: 2.5,
+          group: {
+            id: 10,
+            name: "Guild Linked Group",
+            slug: "guildgrp",
+          },
+          id: 123,
+          intensity: "casual",
+          is_public: true,
+          needs_application: true,
+          run_style: "progression",
+          starts_at: "2026-06-01T20:00:00+00:00",
+          status: "scheduled",
+          target_prog_point_key: "phase-2",
+          title: "Friday prog",
+          urls: {
+            overview: "/groups/guildgrp/activities/123",
+          },
+        },
+      ],
+      meta: {
+        count: 1,
+        discord_guild_id: "1379217636696789022",
+        group: {
+          id: 10,
+          name: "Guild Linked Group",
+          slug: "guildgrp",
+        },
+        limit: 25,
+      },
+    };
+    const calls: FetchCall[] = [];
+    const fetcher = createRecordingJsonFetcher(guildRunsResponse, calls);
+    const context = createLinkedGuildContext(fetcher);
+
+    await guildRunsCommand.execute(
+      {
+        deferReply: deferReply.fn,
+        editReply: editReply.fn,
+        guildId: "1379217636696789022",
+        inGuild: () => true,
+        memberPermissions: new PermissionsBitField(PermissionFlagsBits.ManageGuild),
+        options: {
+          getInteger: () => null,
+        },
+        user: {
+          id: "moderator-id",
+        },
+      } as unknown as ChatInputCommandInteraction,
+      context,
+    );
+
+    expect(deferReply.calls).toEqual([[{ flags: MessageFlags.Ephemeral }]]);
+    expect(editReply.calls).toEqual([
+      [
+        {
+          content: "Found 1 upcoming FullParty run for this server.",
+          embeds: [
+            {
+              color: 0x8b5cf6,
+              description: "Friday prog in Guild Linked Group.",
+              fields: [
+                {
+                  inline: true,
+                  name: "Run ID",
+                  value: "123",
+                },
+                {
+                  inline: true,
+                  name: "Starts",
+                  value: "<t:1780344000:F> (<t:1780344000:R>)",
+                },
+                {
+                  inline: true,
+                  name: "Duration",
+                  value: "2.5h",
+                },
+                {
+                  inline: true,
+                  name: "Status",
+                  value: "Scheduled",
+                },
+                {
+                  inline: true,
+                  name: "Group",
+                  value: "Guild Linked Group",
+                },
+                {
+                  inline: true,
+                  name: "Datacenter",
+                  value: "Light",
+                },
+                {
+                  inline: true,
+                  name: "Style",
+                  value: "Progression",
+                },
+                {
+                  inline: true,
+                  name: "Intensity",
+                  value: "Casual",
+                },
+                {
+                  inline: true,
+                  name: "Applications",
+                  value: "Required",
+                },
+                {
+                  inline: true,
+                  name: "Target Prog",
+                  value: "Phase 2",
+                },
+              ],
+              footer: {
+                text: "FullParty - Guild Runs",
+              },
+              title: "Friday prog",
+              url: "http://fullparty.test/groups/guildgrp/activities/123",
+            },
+          ],
+        },
+      ],
+    ]);
+    expect(context.payloads.get()).toMatchObject({
+      payload: {
+        command: "guildruns",
+        discord_guild_id: "1379217636696789022",
+        ok: true,
+        response: guildRunsResponse,
+        source: "fullparty.api",
+      },
+      source: "FullParty /guildruns API response",
+    });
+    expect(fetchInputToUrl(calls[0]?.input)).toBe(
+      "http://fullparty.test/api/integrations/discord-guilds/1379217636696789022/upcoming-runs?limit=25",
+    );
+  });
+
+  it("manually runs guild role assignment for an eligible run", async () => {
+    const deferReply = createAsyncRecorder();
+    const editReply = createAsyncRecorder();
+    const calls: FetchCall[] = [];
+    const roleAdds: string[] = [];
+    const createdRoles: string[] = [];
+    const startsAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+    const expectedRunRoleName = `FullParty: AAC Cruiserweight M1 (Savage) ${formatUtcHourMinute(startsAt)} UTC`;
+    const roleAssignmentResponse = {
+      data: {
+        discord_guild: {
+          icon_url: null,
+          id: "1379217636696789022",
+          name: "Role Guild",
+        },
+        discord_user_ids: ["182520880277094400"],
+        group: {
+          id: 10,
+          name: "Guild Linked Group",
+          slug: "guildgrp",
+        },
+        participants: [
+          {
+            application: null,
+            character: {
+              datacenter: "Light",
+              id: 21,
+              name: "Giki Chomusuke",
+              world: "Lich",
+            },
+            discord_user_id: "182520880277094400",
+            slot: {
+              id: 77,
+              is_bench: false,
+              slot_key: "party-a-slot-1",
+            },
+            source: "slot",
+            user_id: 5,
+          },
+        ],
+        run: {
+          display_name: "AAC Cruiserweight M1 (Savage)",
+          id: 6932,
+          starts_at: startsAt,
+          status: "assigned",
+        },
+        total_placed_count: 2,
+        unlinked_count: 1,
+      },
+    };
+    const context = createLinkedGuildContext(
+      createRecordingJsonFetcher(roleAssignmentResponse, calls),
+    );
+    context.guildRunRoles = createMemoryRunRoleStore();
+    const templateRole = {
+      color: 0x3b82f6,
+      hoist: false,
+      id: "template-role-id",
+      mentionable: false,
+      name: "Template Raider",
+      permissions: {
+        bitfield: 0n,
+      },
+    };
+    const runRole = {
+      id: "run-role-id",
+      name: expectedRunRoleName,
+    };
+
+    await assignRunRoleCommand.execute(
+      {
+        client: {
+          channels: {
+            fetch: () => Promise.resolve(null),
+          },
+          guilds: {
+            fetch: () =>
+              Promise.resolve({
+                channels: {
+                  fetch: () => Promise.resolve(new Map()),
+                },
+                members: {
+                  fetch: () =>
+                    Promise.resolve({
+                      roles: {
+                        add: (roleId: string) => {
+                          roleAdds.push(roleId);
+                          return Promise.resolve({});
+                        },
+                      },
+                    }),
+                  me: {
+                    permissions: {
+                      has: () => true,
+                    },
+                    roles: {
+                      highest: {
+                        comparePositionTo: () => 1,
+                      },
+                    },
+                  },
+                },
+                roles: {
+                  cache: {
+                    get: (roleId: string) =>
+                      roleId === "template-role-id" ? templateRole : undefined,
+                  },
+                  create: (options: { name: string }) => {
+                    createdRoles.push(options.name);
+                    return Promise.resolve(runRole);
+                  },
+                  fetch: (roleId: string) =>
+                    Promise.resolve(
+                      roleId === "template-role-id" ? templateRole : runRole,
+                    ),
+                },
+              }),
+          },
+        },
+        deferReply: deferReply.fn,
+        editReply: editReply.fn,
+        guildId: "1379217636696789022",
+        inGuild: () => true,
+        memberPermissions: new PermissionsBitField(PermissionFlagsBits.ManageGuild),
+        options: {
+          getInteger: () => 6932,
+        },
+        user: {
+          id: "moderator-id",
+        },
+      } as unknown as ChatInputCommandInteraction,
+      context,
+    );
+
+    expect(deferReply.calls).toEqual([[{ flags: MessageFlags.Ephemeral }]]);
+    expect(roleAdds).toEqual(["run-role-id"]);
+    expect(createdRoles).toEqual([expectedRunRoleName]);
+    expect(editReply.calls).toEqual([
+      [
+        {
+          content: `✅ Role assignment ran for Run #6932.\nAssigned 1/1 users.\nPlaced users: 2 total, 1 without linked Discord.\nRun role: <@&run-role-id> (${expectedRunRoleName})\nCheck the bot-log channel for the full status embed.`,
+        },
+      ],
+    ]);
+    expect(fetchInputToUrl(calls[0]?.input)).toBe(
+      "http://fullparty.test/api/integrations/discord-guilds/1379217636696789022/runs/6932/role-assignment",
+    );
+  });
+
+  it("blocks manual guild role assignment outside the allowed time window", async () => {
+    const deferReply = createAsyncRecorder();
+    const editReply = createAsyncRecorder();
+    const startsAt = new Date(Date.now() + 90 * 60 * 1000).toISOString();
+    const context = createLinkedGuildContext(
+      createJsonFetcher({
+        data: {
+          discord_guild: {
+            id: "1379217636696789022",
+            name: "Role Guild",
+          },
+          participants: [
+            {
+              discord_user_id: "182520880277094400",
+            },
+          ],
+          run: {
+            display_name: "Too Far Away",
+            id: 6932,
+            starts_at: startsAt,
+          },
+        },
+      }),
+    );
+
+    await assignRunRoleCommand.execute(
+      {
+        client: {
+          guilds: {
+            fetch: () => {
+              throw new Error("Discord guild should not be fetched.");
+            },
+          },
+        },
+        deferReply: deferReply.fn,
+        editReply: editReply.fn,
+        guildId: "1379217636696789022",
+        inGuild: () => true,
+        memberPermissions: new PermissionsBitField(PermissionFlagsBits.ManageGuild),
+        options: {
+          getInteger: () => 6932,
+        },
+        user: {
+          id: "moderator-id",
+        },
+      } as unknown as ChatInputCommandInteraction,
+      context,
+    );
+
+    expect(deferReply.calls).toEqual([[{ flags: MessageFlags.Ephemeral }]]);
+    expect(editReply.calls[0]?.[0]).toMatchObject({
+      content: expect.stringContaining("within 60 minutes") as string,
+    });
+  });
+
   it("links the invoking Discord user to FullParty", async () => {
     const deferReply = createAsyncRecorder();
     const editReply = createAsyncRecorder();
@@ -1105,6 +1464,62 @@ function createContext(fetcher: typeof fetch = createDefaultFetcher()): BotConte
   };
 }
 
+function createLinkedGuildContext(
+  fetcher: typeof fetch = createDefaultFetcher(),
+): BotContext {
+  const context = createContext(fetcher);
+
+  context.guildSettings = {
+    get: (guildId) =>
+      Promise.resolve({
+        guildId,
+        linkedAt: "2026-05-30T00:00:00.000Z",
+        syncDiscordNamesToFf14: false,
+        upcomingRaiderRoleId: "template-role-id",
+      }),
+    update: (guildId) =>
+      Promise.resolve({
+        guildId,
+        linkedAt: "2026-05-30T00:00:00.000Z",
+        syncDiscordNamesToFf14: false,
+        upcomingRaiderRoleId: "template-role-id",
+      }),
+  };
+
+  return context;
+}
+
+function createMemoryRunRoleStore(): NonNullable<BotContext["guildRunRoles"]> {
+  const mappings = new Map<
+    string,
+    Awaited<ReturnType<NonNullable<BotContext["guildRunRoles"]>["upsert"]>>
+  >();
+
+  return {
+    get: (discordGuildId, runId) =>
+      Promise.resolve(mappings.get(`${discordGuildId}:${String(runId)}`)),
+    markDeleted: (discordGuildId, runId) => {
+      mappings.delete(`${discordGuildId}:${String(runId)}`);
+
+      return Promise.resolve();
+    },
+    markDeletedByRole: (_discordGuildId, roleId) => {
+      for (const [key, mapping] of mappings.entries()) {
+        if (mapping.roleId === roleId) {
+          mappings.delete(key);
+        }
+      }
+
+      return Promise.resolve();
+    },
+    upsert: (mapping) => {
+      mappings.set(`${mapping.discordGuildId}:${String(mapping.runId)}`, mapping);
+
+      return Promise.resolve(mapping);
+    },
+  };
+}
+
 function createDefaultFetcher(): typeof fetch {
   return () =>
     Promise.resolve(
@@ -1149,6 +1564,15 @@ function parseJsonRequestBody(call: FetchCall | undefined): unknown {
   }
 
   return JSON.parse(body) as unknown;
+}
+
+function formatUtcHourMinute(value: string): string {
+  const date = new Date(value);
+
+  return `${date.getUTCHours().toString().padStart(2, "0")}:${date
+    .getUTCMinutes()
+    .toString()
+    .padStart(2, "0")}`;
 }
 
 function fetchInputToUrl(input: FetchCall["input"] | undefined): string {

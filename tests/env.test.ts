@@ -33,6 +33,8 @@ describe("parseConfig", () => {
       HTTP_PORT: 3000,
       LOG_LEVEL: "info",
       NODE_ENV: "development",
+      USER_DM_RATE_LIMIT_COUNT: 2,
+      USER_DM_RATE_LIMIT_WINDOW_MS: 300000,
     });
   });
 
@@ -77,6 +79,17 @@ describe("parseConfig", () => {
     expect(config.GUILD_MEMBER_CACHE_REFRESH_INTERVAL_MS).toBe(60000);
     expect(config.GUILD_MEMBER_CACHE_RETRY_AFTER_MS).toBe(60000);
     expect(config.GUILD_MEMBER_CACHE_SWEEP_INTERVAL_MS).toBe(10000);
+  });
+
+  it("parses user DM rate limit tuning", () => {
+    const config = parseConfig({
+      ...baseEnv,
+      USER_DM_RATE_LIMIT_COUNT: "3",
+      USER_DM_RATE_LIMIT_WINDOW_MS: "120000",
+    });
+
+    expect(config.USER_DM_RATE_LIMIT_COUNT).toBe(3);
+    expect(config.USER_DM_RATE_LIMIT_WINDOW_MS).toBe(120000);
   });
 
   it("reports invalid configuration with field names", () => {

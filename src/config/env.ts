@@ -54,6 +54,13 @@ export const appConfigSchema = z.object({
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PAYLOAD_COMMAND_ALLOWED_USER_ID: optionalNonEmptyString,
+  USER_DM_RATE_LIMIT_COUNT: z.coerce.number().int().min(1).max(10).default(2),
+  USER_DM_RATE_LIMIT_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .min(1000)
+    .max(3_600_000)
+    .default(300_000),
 });
 
 export type AppConfig = z.infer<typeof appConfigSchema>;

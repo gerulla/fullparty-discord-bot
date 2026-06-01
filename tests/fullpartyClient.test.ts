@@ -147,6 +147,92 @@ describe("FullpartyApiClient", () => {
     );
   });
 
+  it("requests Discord guild upcoming runs", async () => {
+    const calls: FetchCall[] = [];
+    const fetcher: typeof fetch = (input, init) => {
+      const call: FetchCall = init === undefined ? { input } : { input, init };
+      calls.push(call);
+
+      return Promise.resolve(
+        new Response(JSON.stringify({ data: [] }), {
+          headers: { "content-type": "application/json" },
+          status: 200,
+        }),
+      );
+    };
+    const client = new FullpartyApiClient({
+      apiToken: "api-token",
+      baseUrl: "http://fullparty.test/api",
+      fetcher,
+    });
+
+    await expect(
+      client.getDiscordGuildUpcomingRuns("1379217636696789022", { limit: 25 }),
+    ).resolves.toEqual({
+      data: [],
+    });
+
+    const call = calls.at(0);
+
+    expect(call).toBeDefined();
+
+    if (!call) {
+      throw new Error("Expected fetch to be called.");
+    }
+
+    expect(fetchInputToUrl(call.input)).toBe(
+      "http://fullparty.test/api/integrations/discord-guilds/1379217636696789022/upcoming-runs?limit=25",
+    );
+
+    const headers = new Headers(call.init?.headers);
+
+    expect(headers.get("authorization")).toBe("Bearer api-token");
+  });
+
+  it("requests Discord guild run role assignment data", async () => {
+    const calls: FetchCall[] = [];
+    const fetcher: typeof fetch = (input, init) => {
+      const call: FetchCall = init === undefined ? { input } : { input, init };
+      calls.push(call);
+
+      return Promise.resolve(
+        new Response(JSON.stringify({ data: { run_id: 6932 } }), {
+          headers: { "content-type": "application/json" },
+          status: 200,
+        }),
+      );
+    };
+    const client = new FullpartyApiClient({
+      apiToken: "api-token",
+      baseUrl: "http://fullparty.test/api",
+      fetcher,
+    });
+
+    await expect(
+      client.getDiscordGuildRunRoleAssignment("1379217636696789022", 6932),
+    ).resolves.toEqual({
+      data: {
+        run_id: 6932,
+      },
+    });
+
+    const call = calls.at(0);
+
+    expect(call).toBeDefined();
+
+    if (!call) {
+      throw new Error("Expected fetch to be called.");
+    }
+
+    expect(fetchInputToUrl(call.input)).toBe(
+      "http://fullparty.test/api/integrations/discord-guilds/1379217636696789022/runs/6932/role-assignment",
+    );
+
+    const headers = new Headers(call.init?.headers);
+
+    expect(headers.get("authorization")).toBe("Bearer api-token");
+  });
+
   it("links a Discord user with the integration token payload", async () => {
     const calls: FetchCall[] = [];
     const fetcher: typeof fetch = (input, init) => {

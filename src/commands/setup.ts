@@ -13,6 +13,7 @@ import {
 } from "discord.js";
 
 import type { GuildSettings } from "../guildSettings/types.js";
+import type { GuildSettingsPatch } from "../guildSettings/types.js";
 import type { ChatInputCommand, SetupComponentInteraction } from "./types.js";
 
 const setupCustomIdPrefix = "setup";
@@ -60,13 +61,17 @@ export const setupCommand: ChatInputCommand = {
     }
 
     const patch = getSettingsPatch(interaction);
+    const preflightWarning = await createSetupPreflightWarning(interaction, patch);
     const settings = await context.guildSettings.update(guildId, patch);
 
-    await interaction.update(buildSetupPanel(settings));
+    await interaction.update(buildSetupPanel(settings, preflightWarning));
   },
 };
 
-function buildSetupPanel(settings: GuildSettings): {
+function buildSetupPanel(
+  settings: GuildSettings,
+  preflightWarning?: string,
+): {
   components: SetupActionRow[];
   content: string;
 } {
@@ -81,9 +86,12 @@ function buildSetupPanel(settings: GuildSettings): {
       "4. Bot moderator role: " + formatRole(settings.botModeratorRoleId),
       "5. Sync Discord names to FF14 character names: " +
         formatEnabled(settings.syncDiscordNamesToFf14),
+      preflightWarning ? `\n${preflightWarning}` : undefined,
       "",
       "Use the controls below from top to bottom. Changes save immediately.",
-    ].join("\n"),
+    ]
+      .filter((line): line is string => line !== undefined)
+      .join("\n"),
   };
 }
 
@@ -142,7 +150,7 @@ function buildSetupComponents(settings: GuildSettings): SetupActionRow[] {
   ];
 }
 
-function getSettingsPatch(interaction: SetupComponentInteraction) {
+function getSettingsPatch(interaction: SetupComponentInteraction): GuildSettingsPatch {
   if (interaction.isChannelSelectMenu()) {
     const selectedChannelId = interaction.values.at(0);
 
@@ -188,6 +196,101 @@ function getSettingsPatch(interaction: SetupComponentInteraction) {
   throw new Error(`Unsupported setup component: ${interaction.customId}`);
 }
 
+async function createSetupPreflightWarning(
+  interaction: SetupComponentInteraction,
+  patch: GuildSettingsPatch,
+): Promise<string | undefined> {
+  if (!interaction.isChannelSelectMenu()) {
+    return undefined;
+  }
+
+  const channelId = patch.botLogChannelId ?? patch.runAnnouncementChannelId;
+
+  if (!channelId) {
+    return undefined;
+  }
+
+  const channelLabel = patch.botLogChannelId
+    ? "Bot-log channel"
+    : "Member-Facing Channel";
+  const channel = await resolveSelectedChannel(interaction, channelId);
+
+  if (!channel) {
+    return `⚠️ ${channelLabel} preflight: I could not inspect <#${channelId}>. Make sure I can view and send messages there.`;
+  }
+
+  const missingPermissions = getMissingChannelSendPermissions(interaction, channel);
+
+  if (missingPermissions.length === 0) {
+    return undefined;
+  }
+
+  return [
+    `⚠️ ${channelLabel} preflight: I cannot fully send messages in <#${channelId}> yet.`,
+    `Missing permissions: ${missingPermissions.join(", ")}.`,
+  ].join("\n");
+}
+
+async function resolveSelectedChannel(
+  interaction: SetupComponentInteraction,
+  channelId: string,
+): Promise<unknown> {
+  const resolvedChannel = getCollectionValue(
+    getRecordValue(interaction, "channels"),
+    channelId,
+  );
+
+  if (resolvedChannel) {
+    return resolvedChannel;
+  }
+
+  const cachedChannel = getCollectionValue(
+    getRecordValue(getRecordValue(interaction.guild, "channels"), "cache"),
+    channelId,
+  );
+
+  if (cachedChannel) {
+    return cachedChannel;
+  }
+
+  const channels = getRecordValue(interaction.guild, "channels");
+
+  if (isChannelFetcher(channels)) {
+    return await Promise.resolve(channels.fetch(channelId));
+  }
+
+  return undefined;
+}
+
+function getMissingChannelSendPermissions(
+  interaction: SetupComponentInteraction,
+  channel: unknown,
+): string[] {
+  const permissions = getBotChannelPermissions(interaction, channel);
+
+  if (!permissions) {
+    return ["View Channel", "Send Messages", "Embed Links"];
+  }
+
+  return requiredChannelPermissions.flatMap((permission) =>
+    permissions.has(permission.bit) ? [] : [permission.label],
+  );
+}
+
+function getBotChannelPermissions(
+  interaction: SetupComponentInteraction,
+  channel: unknown,
+): PermissionLookup | undefined {
+  if (!isPermissionChannel(channel)) {
+    return undefined;
+  }
+
+  const botMember = interaction.guild?.members.me;
+  const permissions = channel.permissionsFor(botMember);
+
+  return isPermissionLookup(permissions) ? permissions : undefined;
+}
+
 async function getManageableGuildId(
   interaction: SetupComponentInteraction | Parameters<ChatInputCommand["execute"]>[0],
 ): Promise<string | undefined> {
@@ -220,4 +323,76 @@ function formatRole(roleId: string | undefined): string {
 
 function formatEnabled(value: boolean): string {
   return value ? "Enabled" : "Disabled";
+}
+
+type PermissionLookup = {
+  has(permission: bigint): boolean;
+};
+
+type PermissionChannel = {
+  permissionsFor(target: unknown): unknown;
+};
+
+type CollectionLike = {
+  get(id: string): unknown;
+};
+
+type ChannelFetcher = {
+  fetch(id: string): unknown;
+};
+
+const requiredChannelPermissions = [
+  {
+    bit: PermissionFlagsBits.ViewChannel,
+    label: "View Channel",
+  },
+  {
+    bit: PermissionFlagsBits.SendMessages,
+    label: "Send Messages",
+  },
+  {
+    bit: PermissionFlagsBits.EmbedLinks,
+    label: "Embed Links",
+  },
+] as const;
+
+function getCollectionValue(collection: unknown, id: string): unknown {
+  if (!isCollectionLike(collection)) {
+    return undefined;
+  }
+
+  return collection.get(id);
+}
+
+function getRecordValue(
+  value: unknown,
+  key: string,
+): Record<string, unknown> | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const nestedValue = value[key];
+
+  return isRecord(nestedValue) ? nestedValue : undefined;
+}
+
+function isPermissionLookup(value: unknown): value is PermissionLookup {
+  return isRecord(value) && typeof value.has === "function";
+}
+
+function isPermissionChannel(value: unknown): value is PermissionChannel {
+  return isRecord(value) && typeof value.permissionsFor === "function";
+}
+
+function isCollectionLike(value: unknown): value is CollectionLike {
+  return isRecord(value) && typeof value.get === "function";
+}
+
+function isChannelFetcher(value: unknown): value is ChannelFetcher {
+  return isRecord(value) && typeof value.fetch === "function";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }

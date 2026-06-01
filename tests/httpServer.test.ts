@@ -290,6 +290,68 @@ describe("Fullparty webhook server", () => {
     ]);
   });
 
+  it("returns queued DM results when the per-user DM limiter delays delivery", async () => {
+    const queuedOperations: unknown[] = [];
+    const context: BotContext = {
+      ...createContext(),
+      userDmRateLimiter: {
+        send: (
+          discordUserId: string,
+          operation: () => Promise<Record<string, unknown>>,
+        ) => {
+          queuedOperations.push(operation);
+
+          return Promise.resolve({
+            discordUserId,
+            nextAttemptAt: "2026-06-01T00:05:00.000Z",
+            queuePosition: 1,
+            queued: true,
+            rateLimited: true,
+          });
+        },
+        stop: () => undefined,
+      } as never,
+    };
+    const baseUrl = await listen(
+      createTestServer({
+        client: {
+          channels: {
+            fetch: () => Promise.resolve(null),
+          },
+          users: {
+            fetch: () => {
+              throw new Error("Delayed DM should not be sent during webhook handling.");
+            },
+          },
+        } as never,
+        context,
+      }),
+    );
+
+    await expect(
+      postAction(baseUrl, {
+        data: {
+          discord_user: {
+            id: "discord-user-id",
+          },
+        },
+        event: "discord.user_app.installed",
+      }),
+    ).resolves.toMatchObject({
+      body: {
+        result: {
+          discordUserId: "discord-user-id",
+          nextAttemptAt: "2026-06-01T00:05:00.000Z",
+          queuePosition: 1,
+          queued: true,
+          rateLimited: true,
+        },
+      },
+      status: 200,
+    });
+    expect(queuedOperations).toHaveLength(1);
+  });
+
   it("sends a disconnect DM when a user app disconnect event arrives", async () => {
     const sentMessages: unknown[] = [];
     const baseUrl = await listen(

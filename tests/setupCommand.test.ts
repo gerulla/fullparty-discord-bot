@@ -130,6 +130,63 @@ describe("setupCommand", () => {
     ]);
   });
 
+  it("warns when a selected channel is missing send permissions", async () => {
+    const context = createContext();
+    const update = createAsyncRecorder();
+
+    await setupCommand.handleComponent?.(
+      createChannelSelectInteraction({
+        channel: {
+          permissionsFor: () => new PermissionsBitField(PermissionFlagsBits.ViewChannel),
+        },
+        customId: "setup:run_announcement_channel",
+        update: update.fn,
+        values: ["run-announcement-channel-id"],
+      }),
+      context,
+    );
+
+    expect(context.patches).toEqual([
+      {
+        runAnnouncementChannelId: "run-announcement-channel-id",
+      },
+    ]);
+    expect(update.calls[0]?.[0]).toMatchObject({
+      content: expect.stringContaining(
+        "Member-Facing Channel preflight: I cannot fully send messages",
+      ) as string,
+    });
+    expect(update.calls[0]?.[0]).toMatchObject({
+      content: expect.stringContaining("Send Messages, Embed Links") as string,
+    });
+  });
+
+  it("does not warn when a selected channel is sendable", async () => {
+    const context = createContext();
+    const update = createAsyncRecorder();
+
+    await setupCommand.handleComponent?.(
+      createChannelSelectInteraction({
+        channel: {
+          permissionsFor: () =>
+            new PermissionsBitField(
+              PermissionFlagsBits.ViewChannel |
+                PermissionFlagsBits.SendMessages |
+                PermissionFlagsBits.EmbedLinks,
+            ),
+        },
+        customId: "setup:bot_log_channel",
+        update: update.fn,
+        values: ["bot-log-channel-id"],
+      }),
+      context,
+    );
+
+    expect(update.calls[0]?.[0]).toMatchObject({
+      content: expect.not.stringContaining("preflight") as string,
+    });
+  });
+
   it("saves the selected upcoming raider role", async () => {
     const context = createContext();
     const update = createAsyncRecorder();
@@ -206,6 +263,7 @@ type BaseInteractionOptions = {
 };
 
 type ComponentInteractionOptions = BaseInteractionOptions & {
+  channel?: unknown;
   customId?: string;
   update?: (...args: unknown[]) => Promise<void>;
   values?: string[];
@@ -312,6 +370,19 @@ function createChannelSelectInteraction(
     memberPermissions:
       options.memberPermissions ??
       new PermissionsBitField(PermissionFlagsBits.ManageGuild),
+    channels: {
+      get: (channelId: string) =>
+        channelId === (options.values ?? ["channel-id"]).at(0)
+          ? options.channel
+          : undefined,
+    },
+    guild: {
+      members: {
+        me: {
+          id: "bot-user-id",
+        },
+      },
+    },
     reply: options.reply ?? reply.fn,
     update: options.update ?? update.fn,
     values: options.values ?? ["channel-id"],
