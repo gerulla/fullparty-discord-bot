@@ -1,6 +1,8 @@
 import {
   ApplicationIntegrationType,
   InteractionContextType,
+  type Client,
+  type InteractionEditReplyOptions,
   MessageFlags,
   SlashCommandBuilder,
 } from "discord.js";
@@ -15,6 +17,16 @@ import type { ChatInputCommand } from "./types.js";
 
 const maxBeforeStartMs = 60 * 60 * 1000;
 const maxAfterStartMs = 15 * 60 * 1000;
+
+type GuildRunRoleAssignmentRunnerOptions = {
+  client: Client;
+  context: Parameters<ChatInputCommand["execute"]>[1];
+  guildId: string;
+  responder: {
+    editReply(options: InteractionEditReplyOptions | string): Promise<unknown>;
+  };
+  runId: number;
+};
 
 export const assignRunRoleCommand: ChatInputCommand = {
   data: new SlashCommandBuilder()
@@ -55,64 +67,80 @@ export const assignRunRoleCommand: ChatInputCommand = {
 
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-    const response = await fetchRunRoleAssignmentPayload(
-      interaction,
+    await runGuildRunRoleAssignment({
+      client: interaction.client,
       context,
       guildId,
+      responder: interaction,
       runId,
-    );
-
-    if (!response) {
-      return;
-    }
-
-    let data;
-
-    try {
-      data = extractGuildRunReminderData(response, {
-        discordGuildId: guildId,
-        now: new Date(),
-        runId,
-      });
-    } catch {
-      await interaction.editReply({
-        content:
-          "FullParty did not return enough data for that run role assignment. I need the run id, start time, Discord guild id, and participants.",
-      });
-      return;
-    }
-
-    if (data.discord_guild_id !== guildId) {
-      await interaction.editReply({
-        content:
-          "FullParty returned a role assignment payload for a different Discord server, so I did not run it.",
-      });
-      return;
-    }
-
-    const windowError = getRunAssignmentWindowError(data.starts_at);
-
-    if (windowError) {
-      await interaction.editReply({ content: windowError });
-      return;
-    }
-
-    const result = await processGuildRunRoleAssignment(
-      {
-        client: interaction.client,
-        context,
-      },
-      data,
-    );
-
-    await interaction.editReply({
-      content: createAssignmentResultMessage(data.run_id, result, data),
     });
   },
 };
 
+export async function runGuildRunRoleAssignment({
+  client,
+  context,
+  guildId,
+  responder,
+  runId,
+}: GuildRunRoleAssignmentRunnerOptions): Promise<void> {
+  const response = await fetchRunRoleAssignmentPayload(
+    responder,
+    context,
+    guildId,
+    runId,
+  );
+
+  if (!response) {
+    return;
+  }
+
+  let data;
+
+  try {
+    data = extractGuildRunReminderData(response, {
+      discordGuildId: guildId,
+      now: new Date(),
+      runId,
+    });
+  } catch {
+    await responder.editReply({
+      content:
+        "FullParty did not return enough data for that run role assignment. I need the run id, start time, Discord guild id, and participants.",
+    });
+    return;
+  }
+
+  if (data.discord_guild_id !== guildId) {
+    await responder.editReply({
+      content:
+        "FullParty returned a role assignment payload for a different Discord server, so I did not run it.",
+    });
+    return;
+  }
+
+  const windowError = getRunAssignmentWindowError(data.starts_at);
+
+  if (windowError) {
+    await responder.editReply({ content: windowError });
+    return;
+  }
+
+  const result = await processGuildRunRoleAssignment(
+    {
+      client,
+      context,
+    },
+    data,
+  );
+
+  await responder.editReply({
+    content: createAssignmentResultMessage(data.run_id, result, data),
+  });
+}
+
 async function fetchRunRoleAssignmentPayload(
-  interaction: Parameters<ChatInputCommand["execute"]>[0],
+  responder: GuildRunRoleAssignmentRunnerOptions["responder"],
   context: Parameters<ChatInputCommand["execute"]>[1],
   guildId: string,
   runId: number,
@@ -125,7 +153,7 @@ async function fetchRunRoleAssignmentPayload(
       request: () => context.fullparty.getDiscordGuildRunRoleAssignment(guildId, runId),
     });
   } catch (error) {
-    await interaction.editReply({
+    await responder.editReply({
       content: getFullpartyRunLookupErrorMessage(error, runId),
     });
     return undefined;

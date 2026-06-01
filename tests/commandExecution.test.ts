@@ -1,4 +1,5 @@
 import {
+  type ButtonInteraction,
   type ChatInputCommandInteraction,
   MessageFlags,
   PermissionFlagsBits,
@@ -613,9 +614,25 @@ describe("command execution", () => {
             overview: "/groups/guildgrp/activities/123",
           },
         },
+        {
+          datacenter: "Chaos",
+          display_name: "Second prog",
+          duration_hours: 2,
+          group: {
+            id: 10,
+            name: "Guild Linked Group",
+            slug: "guildgrp",
+          },
+          id: 456,
+          starts_at: "2026-06-02T20:00:00+00:00",
+          status: "scheduled",
+          urls: {
+            overview: "/groups/guildgrp/activities/456",
+          },
+        },
       ],
       meta: {
-        count: 1,
+        count: 2,
         discord_guild_id: "1379217636696789022",
         group: {
           id: 10,
@@ -646,76 +663,133 @@ describe("command execution", () => {
       context,
     );
 
-    expect(deferReply.calls).toEqual([[{ flags: MessageFlags.Ephemeral }]]);
-    expect(editReply.calls).toEqual([
-      [
-        {
-          content: "Found 1 upcoming FullParty run for this server.",
-          embeds: [
-            {
-              color: 0x8b5cf6,
-              description: "Friday prog in Guild Linked Group.",
-              fields: [
-                {
-                  inline: true,
-                  name: "Run ID",
-                  value: "123",
-                },
-                {
-                  inline: true,
-                  name: "Starts",
-                  value: "<t:1780344000:F> (<t:1780344000:R>)",
-                },
-                {
-                  inline: true,
-                  name: "Duration",
-                  value: "2.5h",
-                },
-                {
-                  inline: true,
-                  name: "Status",
-                  value: "Scheduled",
-                },
-                {
-                  inline: true,
-                  name: "Group",
-                  value: "Guild Linked Group",
-                },
-                {
-                  inline: true,
-                  name: "Datacenter",
-                  value: "Light",
-                },
-                {
-                  inline: true,
-                  name: "Style",
-                  value: "Progression",
-                },
-                {
-                  inline: true,
-                  name: "Intensity",
-                  value: "Casual",
-                },
-                {
-                  inline: true,
-                  name: "Applications",
-                  value: "Required",
-                },
-                {
-                  inline: true,
-                  name: "Target Prog",
-                  value: "Phase 2",
-                },
-              ],
-              footer: {
-                text: "FullParty - Guild Runs",
-              },
-              title: "Friday prog",
-              url: "http://fullparty.test/groups/guildgrp/activities/123",
-            },
-          ],
+    const message = getFirstMessageOptions(editReply);
+
+    expect(deferReply.calls).toEqual([[]]);
+    expect(message.content).toBe(
+      "Found 2 upcoming FullParty runs for this server. Page 1/2",
+    );
+    expect(message.embeds).toEqual([
+      {
+        color: 0x8b5cf6,
+        description: "Friday prog in Guild Linked Group.",
+        fields: [
+          {
+            inline: true,
+            name: "Run ID",
+            value: "123",
+          },
+          {
+            inline: true,
+            name: "Starts",
+            value: "<t:1780344000:F> (<t:1780344000:R>)",
+          },
+          {
+            inline: true,
+            name: "Duration",
+            value: "2.5h",
+          },
+          {
+            inline: true,
+            name: "Status",
+            value: "Scheduled",
+          },
+          {
+            inline: true,
+            name: "Group",
+            value: "Guild Linked Group",
+          },
+          {
+            inline: true,
+            name: "Datacenter",
+            value: "Light",
+          },
+          {
+            inline: true,
+            name: "Style",
+            value: "Progression",
+          },
+          {
+            inline: true,
+            name: "Intensity",
+            value: "Casual",
+          },
+          {
+            inline: true,
+            name: "Applications",
+            value: "Required",
+          },
+          {
+            inline: true,
+            name: "Target Prog",
+            value: "Phase 2",
+          },
+        ],
+        footer: {
+          text: "FullParty - Guild Runs • Page 1/2",
         },
-      ],
+        title: "Friday prog",
+        url: "http://fullparty.test/groups/guildgrp/activities/123",
+      },
+    ]);
+    expect(message.components?.map((component) => component.toJSON())).toMatchObject([
+      {
+        components: [
+          {
+            custom_id: "guildruns:1379217636696789022:moderator-id:25:0",
+            disabled: true,
+            emoji: {
+              animated: false,
+              id: undefined,
+              name: "⬅️",
+            },
+            label: "Previous",
+            style: 2,
+            type: 2,
+          },
+          {
+            emoji: {
+              name: "🔎",
+            },
+            label: "Overview",
+            style: 5,
+            type: 2,
+            url: "http://fullparty.test/groups/guildgrp/activities/123",
+          },
+          {
+            emoji: {
+              name: "🛠️",
+            },
+            label: "Manage",
+            style: 5,
+            type: 2,
+            url: "http://fullparty.test/dashboard/groups/guildgrp/runs/123",
+          },
+          {
+            custom_id: "guildruns:assign:1379217636696789022:moderator-id:25:0:123",
+            disabled: false,
+            emoji: {
+              name: "🛡️",
+            },
+            label: "Assign Role",
+            style: 1,
+            type: 2,
+          },
+          {
+            custom_id: "guildruns:1379217636696789022:moderator-id:25:1",
+            disabled: false,
+            emoji: {
+              animated: false,
+              id: undefined,
+              name: "➡️",
+            },
+            label: "Next",
+            style: 2,
+            type: 2,
+          },
+        ],
+        type: 1,
+      },
     ]);
     expect(context.payloads.get()).toMatchObject({
       payload: {
@@ -729,6 +803,203 @@ describe("command execution", () => {
     });
     expect(fetchInputToUrl(calls[0]?.input)).toBe(
       "http://fullparty.test/api/integrations/discord-guilds/1379217636696789022/upcoming-runs?limit=25",
+    );
+  });
+
+  it("edits the /guildruns message when a paginator button is pressed", async () => {
+    const deferUpdate = createAsyncRecorder();
+    const editReply = createAsyncRecorder();
+    const reply = createAsyncRecorder();
+    const calls: FetchCall[] = [];
+    const fetcher = createRecordingJsonFetcher(
+      {
+        data: [
+          {
+            display_name: "First prog",
+            group: { name: "Guild Linked Group" },
+            id: 123,
+            starts_at: "2026-06-01T20:00:00+00:00",
+            status: "scheduled",
+          },
+          {
+            display_name: "Second prog",
+            group: { name: "Guild Linked Group", slug: "guildgrp" },
+            id: 456,
+            starts_at: "2026-06-02T20:00:00+00:00",
+            status: "scheduled",
+            urls: {
+              overview: "/groups/guildgrp/activities/456",
+            },
+          },
+        ],
+      },
+      calls,
+    );
+    const context = createLinkedGuildContext(fetcher);
+
+    await guildRunsCommand.handleComponent?.(
+      {
+        customId: "guildruns:1379217636696789022:moderator-id:25:1",
+        deferUpdate: deferUpdate.fn,
+        editReply: editReply.fn,
+        guildId: "1379217636696789022",
+        isButton: () => true,
+        reply: reply.fn,
+        user: {
+          id: "moderator-id",
+        },
+      } as unknown as ButtonInteraction,
+      context,
+    );
+
+    const message = getFirstMessageOptions(editReply);
+
+    expect(reply.calls).toEqual([]);
+    expect(deferUpdate.calls).toEqual([[]]);
+    expect(message.content).toBe(
+      "Found 2 upcoming FullParty runs for this server. Page 2/2",
+    );
+    expect(message.embeds?.[0]).toMatchObject({
+      footer: {
+        text: "FullParty - Guild Runs • Page 2/2",
+      },
+      title: "Second prog",
+    });
+    expect(message.components?.map((component) => component.toJSON())).toMatchObject([
+      {
+        components: [
+          {
+            custom_id: "guildruns:1379217636696789022:moderator-id:25:0",
+            disabled: false,
+            emoji: {
+              animated: false,
+              id: undefined,
+              name: "⬅️",
+            },
+            label: "Previous",
+            style: 2,
+            type: 2,
+          },
+          {
+            label: "Overview",
+            style: 5,
+            type: 2,
+          },
+          {
+            label: "Manage",
+            style: 5,
+            type: 2,
+          },
+          {
+            custom_id: "guildruns:assign:1379217636696789022:moderator-id:25:1:456",
+            disabled: false,
+            label: "Assign Role",
+            style: 1,
+            type: 2,
+          },
+          {
+            custom_id: "guildruns:1379217636696789022:moderator-id:25:1",
+            disabled: true,
+            emoji: {
+              animated: false,
+              id: undefined,
+              name: "➡️",
+            },
+            label: "Next",
+            style: 2,
+            type: 2,
+          },
+        ],
+        type: 1,
+      },
+    ]);
+    expect(fetchInputToUrl(calls[0]?.input)).toBe(
+      "http://fullparty.test/api/integrations/discord-guilds/1379217636696789022/upcoming-runs?limit=25",
+    );
+  });
+
+  it("runs role assignment from a /guildruns paginator button", async () => {
+    const deferReply = createAsyncRecorder();
+    const editReply = createAsyncRecorder();
+    const reply = createAsyncRecorder();
+    const calls: FetchCall[] = [];
+    const startsAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+    const fetcher = createRecordingJsonFetcher(
+      {
+        data: {
+          discord_guild: {
+            id: "1379217636696789022",
+            name: "Role Guild",
+          },
+          discord_user_ids: ["182520880277094400"],
+          group: {
+            id: 10,
+            name: "Guild Linked Group",
+            slug: "guildgrp",
+          },
+          participants: [
+            {
+              character: {
+                id: 21,
+                name: "Giki Chomusuke",
+                world: "Lich",
+              },
+              discord_user_id: "182520880277094400",
+              user_id: 5,
+            },
+          ],
+          run: {
+            display_name: "AAC Cruiserweight M1 (Savage)",
+            id: 6932,
+            starts_at: startsAt,
+            status: "assigned",
+          },
+          total_placed_count: 1,
+          unlinked_count: 0,
+        },
+      },
+      calls,
+    );
+    const context = createLinkedGuildContext(fetcher);
+
+    await guildRunsCommand.handleComponent?.(
+      {
+        client: {
+          guilds: {
+            fetch: () => {
+              throw new Error("Guild should not be fetched without run-role store.");
+            },
+          },
+        },
+        customId: "guildruns:assign:1379217636696789022:moderator-id:25:0:6932",
+        deferReply: deferReply.fn,
+        editReply: editReply.fn,
+        guildId: "1379217636696789022",
+        isButton: () => true,
+        reply: reply.fn,
+        user: {
+          id: "moderator-id",
+        },
+      } as unknown as ButtonInteraction,
+      context,
+    );
+
+    expect(reply.calls).toEqual([]);
+    expect(deferReply.calls).toEqual([[]]);
+    expect(editReply.calls).toEqual([
+      [
+        {
+          content: [
+            "⚠️ Role assignment checked for Run #6932, but nothing was assigned.",
+            "Run role: not created",
+            "Reason: run role store not configured",
+            "Check the bot-log channel for the full status embed.",
+          ].join("\n"),
+        },
+      ],
+    ]);
+    expect(fetchInputToUrl(calls[0]?.input)).toBe(
+      "http://fullparty.test/api/integrations/discord-guilds/1379217636696789022/runs/6932/role-assignment",
     );
   });
 
@@ -1591,6 +1862,24 @@ function fetchInputToUrl(input: FetchCall["input"] | undefined): string {
   return input.url;
 }
 
+type RecordedMessageOptions = {
+  components?: { toJSON(): unknown }[];
+  content?: string;
+  embeds?: unknown[];
+};
+
+function getFirstMessageOptions(recorder: {
+  calls: unknown[][];
+}): RecordedMessageOptions {
+  const firstArg = recorder.calls[0]?.[0];
+
+  if (!isRecord(firstArg)) {
+    throw new Error("Expected first recorded call to contain message options.");
+  }
+
+  return firstArg;
+}
+
 function createAsyncRecorder(): {
   calls: unknown[][];
   fn: (...args: unknown[]) => Promise<void>;
@@ -1604,4 +1893,8 @@ function createAsyncRecorder(): {
       return Promise.resolve();
     },
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }

@@ -1214,10 +1214,18 @@ describe("Fullparty webhook server", () => {
         reason: "FullParty starting_soon nickname sync for run 123",
       },
     ]);
-    expect(logMessages).toHaveLength(2);
+    expect(logMessages).toHaveLength(3);
     expect(JSON.stringify(logMessages)).not.toContain("Processing Time");
     expect(JSON.stringify(logMessages)).not.toContain("Performance");
     expect(logMessages[0]).toMatchObject({
+      allowedMentions: {
+        parse: [],
+      },
+      content: expect.stringContaining(
+        "⚙️ Automation started for Upcoming Run #123: Cloud of Darkness.",
+      ) as string,
+    });
+    expect(logMessages[1]).toMatchObject({
       allowedMentions: {
         parse: [],
       },
@@ -1266,7 +1274,7 @@ describe("Fullparty webhook server", () => {
         },
       ],
     });
-    expect(logMessages[1]).toMatchObject({
+    expect(logMessages[2]).toMatchObject({
       allowedMentions: {
         parse: [],
       },
@@ -1373,10 +1381,17 @@ describe("Fullparty webhook server", () => {
       },
       status: 200,
     });
-    expect(logMessages).toHaveLength(1);
+    expect(logMessages).toHaveLength(2);
     expect(JSON.stringify(logMessages)).not.toContain("Processing Time");
     expect(JSON.stringify(logMessages)).not.toContain("Performance");
     expect(logMessages[0]).toMatchObject({
+      allowedMentions: {
+        parse: [],
+      },
+      content:
+        "⚙️ Automation started for Run #123 Starting Now.\nRole assignment and nickname sync status will follow here.",
+    });
+    expect(logMessages[1]).toMatchObject({
       allowedMentions: {
         parse: [],
       },
@@ -1772,7 +1787,8 @@ describe("Fullparty webhook server", () => {
       },
       status: 200,
     });
-    expect(logMessages[0]).toMatchObject({
+    expect(logMessages).toHaveLength(2);
+    expect(logMessages[1]).toMatchObject({
       embeds: [
         {
           color: 0x64748b,

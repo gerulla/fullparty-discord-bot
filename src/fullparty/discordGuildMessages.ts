@@ -1,4 +1,11 @@
-import type { APIEmbed, APIEmbedField, InteractionEditReplyOptions } from "discord.js";
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  type APIEmbed,
+  type APIEmbedField,
+  type InteractionEditReplyOptions,
+} from "discord.js";
 
 import { formatDiscordDateTime } from "../lib/discordTimestamps.js";
 import {
@@ -11,17 +18,31 @@ const embedDescriptionLimit = 4096;
 const embedFieldValueLimit = 1024;
 const embedTitleLimit = 256;
 const maxEmbedsPerMessage = 10;
+const pageSize = 1;
+
+export type GuildUpcomingRunsPaginationOptions = {
+  guildId: string;
+  limit: number;
+  page: number;
+  requesterId: string;
+};
 
 export function createGuildUpcomingRunsMessage(
   response: unknown,
   fullpartyWebBaseUrl: string,
+  pagination?: GuildUpcomingRunsPaginationOptions,
 ): InteractionEditReplyOptions {
   const runs = extractCollection(response, ["upcoming_runs", "runs", "items", "data"]);
 
   if (runs.length === 0) {
     return {
+      components: [],
       content: "No upcoming FullParty runs were found for this Discord server.",
     };
+  }
+
+  if (pagination) {
+    return createPaginatedGuildUpcomingRunsMessage(runs, fullpartyWebBaseUrl, pagination);
   }
 
   const visibleRuns = runs.slice(0, maxEmbedsPerMessage);
@@ -34,6 +55,163 @@ export function createGuildUpcomingRunsMessage(
     content: `Found ${String(runs.length)} upcoming FullParty ${runs.length === 1 ? "run" : "runs"} for this server.${truncation}`,
     embeds: visibleRuns.map((run) => createGuildRunEmbed(run, fullpartyWebBaseUrl)),
   };
+}
+
+function createPaginatedGuildUpcomingRunsMessage(
+  runs: Record<string, unknown>[],
+  fullpartyWebBaseUrl: string,
+  pagination: GuildUpcomingRunsPaginationOptions,
+): InteractionEditReplyOptions {
+  const pageCount = Math.max(1, Math.ceil(runs.length / pageSize));
+  const page = clampPage(pagination.page, pageCount);
+  const visibleRuns = runs.slice(page * pageSize, page * pageSize + pageSize);
+  const visibleRun = visibleRuns[0];
+  const pageLabel = `Page ${String(page + 1)}/${String(pageCount)}`;
+
+  return {
+    components: [
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(
+            createGuildRunsPageCustomId({
+              ...pagination,
+              page: Math.max(0, page - 1),
+            }),
+          )
+          .setDisabled(page === 0)
+          .setEmoji("⬅️")
+          .setLabel("Previous")
+          .setStyle(ButtonStyle.Secondary),
+        createRunLinkButton({
+          customId: createGuildRunsNoopCustomId(pagination, page, "overview"),
+          emoji: "🔎",
+          label: "Overview",
+          url: visibleRun ? getActionUrl(visibleRun, fullpartyWebBaseUrl) : undefined,
+        }),
+        createRunLinkButton({
+          customId: createGuildRunsNoopCustomId(pagination, page, "manage"),
+          emoji: "🛠️",
+          label: "Manage",
+          url: visibleRun ? getManagementUrl(visibleRun, fullpartyWebBaseUrl) : undefined,
+        }),
+        createAssignRoleButton(visibleRun, pagination, page),
+        new ButtonBuilder()
+          .setCustomId(
+            createGuildRunsPageCustomId({
+              ...pagination,
+              page: Math.min(pageCount - 1, page + 1),
+            }),
+          )
+          .setDisabled(page >= pageCount - 1)
+          .setEmoji("➡️")
+          .setLabel("Next")
+          .setStyle(ButtonStyle.Secondary),
+      ),
+    ],
+    content: [
+      `Found ${String(runs.length)} upcoming FullParty ${runs.length === 1 ? "run" : "runs"} for this server.`,
+      pageLabel,
+    ].join(" "),
+    embeds: visibleRuns.map((run) => ({
+      ...createGuildRunEmbed(run, fullpartyWebBaseUrl),
+      footer: {
+        text: `FullParty - Guild Runs • ${pageLabel}`,
+      },
+    })),
+  };
+}
+
+export function createGuildRunsPageCustomId(
+  pagination: GuildUpcomingRunsPaginationOptions,
+): string {
+  return [
+    "guildruns",
+    pagination.guildId,
+    pagination.requesterId,
+    String(pagination.limit),
+    String(pagination.page),
+  ].join(":");
+}
+
+export function createGuildRunsAssignCustomId(
+  pagination: GuildUpcomingRunsPaginationOptions,
+  runId: string,
+): string {
+  return [
+    "guildruns",
+    "assign",
+    pagination.guildId,
+    pagination.requesterId,
+    String(pagination.limit),
+    String(pagination.page),
+    runId,
+  ].join(":");
+}
+
+function createAssignRoleButton(
+  run: Record<string, unknown> | undefined,
+  pagination: GuildUpcomingRunsPaginationOptions,
+  page: number,
+): ButtonBuilder {
+  const runId = run ? getRunId(run) : undefined;
+  const button = new ButtonBuilder()
+    .setCustomId(
+      runId
+        ? createGuildRunsAssignCustomId({ ...pagination, page }, runId)
+        : createGuildRunsNoopCustomId(pagination, page, "assign"),
+    )
+    .setDisabled(!runId)
+    .setEmoji("🛡️")
+    .setLabel("Assign Role")
+    .setStyle(ButtonStyle.Primary);
+
+  return button;
+}
+
+function createRunLinkButton(options: {
+  customId: string;
+  emoji: string;
+  label: string;
+  url: string | undefined;
+}): ButtonBuilder {
+  if (!options.url) {
+    return new ButtonBuilder()
+      .setCustomId(options.customId)
+      .setDisabled(true)
+      .setEmoji(options.emoji)
+      .setLabel(options.label)
+      .setStyle(ButtonStyle.Secondary);
+  }
+
+  return new ButtonBuilder()
+    .setEmoji(options.emoji)
+    .setLabel(options.label)
+    .setStyle(ButtonStyle.Link)
+    .setURL(options.url);
+}
+
+function createGuildRunsNoopCustomId(
+  pagination: GuildUpcomingRunsPaginationOptions,
+  page: number,
+  key: string,
+): string {
+  return [
+    "guildruns",
+    "noop",
+    key,
+    pagination.guildId,
+    pagination.requesterId,
+    String(pagination.limit),
+    String(page),
+  ].join(":");
+}
+
+function clampPage(page: number, pageCount: number): number {
+  if (!Number.isFinite(page)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(pageCount - 1, Math.floor(page)));
 }
 
 function createGuildRunEmbed(
@@ -228,6 +406,31 @@ function getActionUrl(
 
   return actionUrl
     ? resolveFullpartyActionUrl(actionUrl, fullpartyWebBaseUrl)
+    : undefined;
+}
+
+function getManagementUrl(
+  value: Record<string, unknown>,
+  fullpartyWebBaseUrl: string,
+): string | undefined {
+  const explicitUrl =
+    getStringValueFromKeys(value, ["management_url", "manage_url", "dashboard_url"]) ??
+    getNestedStringValue(value.urls, ["management", "manage", "dashboard"]);
+
+  if (explicitUrl) {
+    return resolveFullpartyActionUrl(explicitUrl, fullpartyWebBaseUrl);
+  }
+
+  const groupSlug =
+    getStringValueFromKeys(value, ["group_slug"]) ??
+    getNestedStringValue(value.group, ["slug"]);
+  const runId = getRunId(value);
+
+  return groupSlug && runId
+    ? resolveFullpartyActionUrl(
+        `/dashboard/groups/${encodeURIComponent(groupSlug)}/runs/${encodeURIComponent(runId)}`,
+        fullpartyWebBaseUrl,
+      )
     : undefined;
 }
 

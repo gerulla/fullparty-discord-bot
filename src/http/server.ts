@@ -608,6 +608,7 @@ async function dispatchEvent(
     const data = guildRunReminderDataSchema.parse(event.data);
 
     await markGuildLinked(options, data.discord_guild_id);
+    await sendGuildRunAutomationStartedMessage(options, data);
 
     return options.context.guildRunReminderQueue
       ? options.context.guildRunReminderQueue.enqueue({ data, kind: "run_reminder" })
@@ -676,6 +677,23 @@ export async function processGuildRunReminder(
   recordRunReminderAutomationTelemetry(options, data, result);
 
   return result;
+}
+
+async function sendGuildRunAutomationStartedMessage(
+  options: GuildAutomationProcessorOptions,
+  data: GuildRunReminderData,
+): Promise<void> {
+  const settings = await options.context.guildSettings.get(data.discord_guild_id);
+
+  await sendBotLogMessage(
+    options,
+    settings.botLogChannelId,
+    buildGuildRunAutomationStartedMessage(data),
+    {
+      discordGuildId: data.discord_guild_id,
+      messageType: "guild_run_automation_started",
+    },
+  );
 }
 
 export async function processGuildRunRoleAssignment(
@@ -1988,6 +2006,30 @@ function isSendableChannel(value: unknown): value is SendableChannel {
   return isRecord(value) && typeof value.send === "function";
 }
 
+function buildGuildRunAutomationStartedMessage(
+  data: GuildRunReminderData,
+): MessageCreateOptions {
+  const runName = getRunAutomationActivityTitle(data);
+  const runLabel =
+    data.reminder_type === "starting_now"
+      ? `Run #${String(data.run_id)} Starting Now`
+      : `Upcoming Run #${String(data.run_id)}`;
+  const startsLine = formatRunStartsLine(data.starts_at);
+
+  return {
+    allowedMentions: {
+      parse: [],
+    },
+    content: [
+      `⚙️ Automation started for ${runLabel}${runName ? `: ${runName}` : ""}.`,
+      startsLine,
+      "Role assignment and nickname sync status will follow here.",
+    ]
+      .filter((line): line is string => Boolean(line))
+      .join("\n"),
+  };
+}
+
 function buildRunReminderRoleSyncLogMessage(
   data: GuildRunReminderData,
   result: ActionResult,
@@ -2352,6 +2394,12 @@ function createRunReminderDescription(
   ]
     .filter((value): value is string => Boolean(value))
     .join("\n");
+}
+
+function getRunAutomationActivityTitle(
+  data: GuildRunReminderData | GuildRunCompletedData,
+): string | undefined {
+  return data.activity_title ?? data.activity;
 }
 
 function formatRunStartsLine(startsAt: string | undefined): string | undefined {
