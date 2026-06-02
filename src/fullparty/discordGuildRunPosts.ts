@@ -35,7 +35,6 @@ export function createGuildUpcomingRunsPostMessage(
     "",
   ];
   let hiddenRunCount = 0;
-  const hostMentionUserIds = new Set<string>();
 
   for (const [index, run] of runs.entries()) {
     const block = createRunBlock(run, fullpartyWebBaseUrl);
@@ -51,10 +50,6 @@ export function createGuildUpcomingRunsPostMessage(
     }
 
     lines.push(...block.lines, "");
-
-    if (block.hostDiscordUserId) {
-      hostMentionUserIds.add(block.hostDiscordUserId);
-    }
   }
 
   if (hiddenRunCount > 0) {
@@ -69,7 +64,6 @@ export function createGuildUpcomingRunsPostMessage(
   return {
     allowedMentions: {
       parse: [],
-      users: [...hostMentionUserIds].slice(0, 100),
     },
     content: truncateForDiscord(lines.join("\n"), discordMessageLimit),
   };
@@ -79,7 +73,6 @@ function createRunBlock(
   run: Record<string, unknown>,
   fullpartyWebBaseUrl: string,
 ): {
-  hostDiscordUserId?: string;
   lines: string[];
 } {
   const title = getRunTitle(run) ?? "Upcoming FullParty run";
@@ -93,7 +86,6 @@ function createRunBlock(
   const host = getHostLabel(run);
 
   return {
-    ...(host?.discordUserId ? { hostDiscordUserId: host.discordUserId } : {}),
     lines: [
       `**${titleWithProgPoint}**`,
       `${formatParticipantCount(run)} - ${formatApplicationCount(run)} - ${startsAt}`,

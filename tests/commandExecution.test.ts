@@ -1022,7 +1022,6 @@ describe("command execution", () => {
       {
         allowedMentions: {
           parse: [],
-          users: ["800000000000000001"],
         },
         content: [
           "Here are the upcoming FullParty runs for **Guild Linked Group**:",
@@ -1137,7 +1136,6 @@ describe("command execution", () => {
     expect(sentMessages[0]).toMatchObject({
       allowedMentions: {
         parse: [],
-        users: [],
       },
       content: expect.stringContaining(
         "Hosted by Giki Chomusuke [Lich] - [Apply Here](<http://fullparty.test/groups/guildgrp/activities/456>)",
