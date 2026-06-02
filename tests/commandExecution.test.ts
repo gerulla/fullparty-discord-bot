@@ -1031,7 +1031,7 @@ describe("command execution", () => {
           "2/3 Participants - 3 Applications - <t:1780344000:F> (<t:1780344000:R>)",
           "Hosted by <@800000000000000001> - [Apply Here](<http://fullparty.test/groups/guildgrp/activities/123/application>)",
           "",
-          "-# For the full schedule of **Guild Linked Group** [Click Here](<http://fullparty.test/groups/guildgrp/runs>)",
+          "-# For the full schedule of **Guild Linked Group** [Click Here](<http://fullparty.test/en/groups/guildgrp/dashboard/activities>)",
         ].join("\n"),
       },
     ]);

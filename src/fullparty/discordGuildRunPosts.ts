@@ -192,7 +192,7 @@ function getGroupInfo(
     ? resolveFullpartyActionUrl(explicitScheduleUrl, fullpartyWebBaseUrl)
     : slug
       ? resolveFullpartyActionUrl(
-          `/groups/${encodeURIComponent(slug)}/runs`,
+          `/en/groups/${encodeURIComponent(slug)}/dashboard/activities`,
           fullpartyWebBaseUrl,
         )
       : undefined;
