@@ -87,7 +87,9 @@ function createRunBlock(
   const titleWithProgPoint = targetProgPoint ? `${title} - ${targetProgPoint}` : title;
   const startsAt = formatDiscordDateTime(getStartsAt(run)) ?? "Time TBD";
   const applyUrl = getApplyUrl(run, fullpartyWebBaseUrl);
-  const applyLine = applyUrl ? `[Apply Here](${applyUrl})` : "Apply on FullParty";
+  const applyLine = applyUrl
+    ? createSuppressedEmbedMarkdownLink("Apply Here", applyUrl)
+    : "Apply on FullParty";
   const host = getHostLabel(run);
 
   return {
@@ -102,12 +104,16 @@ function createRunBlock(
 
 function createFooter(group: GuildPostGroupInfo): string {
   const scheduleLink = group.scheduleUrl
-    ? `[Click Here](${group.scheduleUrl})`
+    ? createSuppressedEmbedMarkdownLink("Click Here", group.scheduleUrl)
     : "check FullParty";
 
   return group.name
     ? `-# For the full schedule of **${group.name}** ${scheduleLink}`
     : `-# For the full schedule ${scheduleLink}`;
+}
+
+function createSuppressedEmbedMarkdownLink(label: string, url: string): string {
+  return `[${label}](<${url}>)`;
 }
 
 function formatParticipantCount(run: Record<string, unknown>): string {

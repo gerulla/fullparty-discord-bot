@@ -1029,9 +1029,9 @@ describe("command execution", () => {
           "",
           "**Friday prog - Titan Cleanup**",
           "2/3 Participants - 3 Applications - <t:1780344000:F> (<t:1780344000:R>)",
-          "Hosted by <@800000000000000001> - [Apply Here](http://fullparty.test/groups/guildgrp/activities/123/application)",
+          "Hosted by <@800000000000000001> - [Apply Here](<http://fullparty.test/groups/guildgrp/activities/123/application>)",
           "",
-          "-# For the full schedule of **Guild Linked Group** [Click Here](http://fullparty.test/groups/guildgrp/runs)",
+          "-# For the full schedule of **Guild Linked Group** [Click Here](<http://fullparty.test/groups/guildgrp/runs>)",
         ].join("\n"),
       },
     ]);
@@ -1140,7 +1140,7 @@ describe("command execution", () => {
         users: [],
       },
       content: expect.stringContaining(
-        "Hosted by Giki Chomusuke [Lich] - [Apply Here](http://fullparty.test/groups/guildgrp/activities/456)",
+        "Hosted by Giki Chomusuke [Lich] - [Apply Here](<http://fullparty.test/groups/guildgrp/activities/456>)",
       ) as string,
     });
     expect(editReply.calls).toEqual([
