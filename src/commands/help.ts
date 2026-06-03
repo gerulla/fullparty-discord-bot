@@ -47,6 +47,7 @@ function createHelpMessage(fullpartyWebBaseUrl: string): string {
     "`/guildruns` - Show upcoming FullParty runs for this server. Server only. Requires Manage Server or the configured bot moderator role.",
     "`/postruns` - Post a public upcoming-runs summary in the Member-Facing Channel, or use `posthere:true` to post in the current channel. Server only.",
     "`/assignrunrole run_id:<id>` - Manually assign the temporary run role for a run starting within 60 minutes, with a 15-minute grace period after start. Server only.",
+    "`/debugassignrunrole run_id:<id>` - Dry-run role assignment for any run, bypassing the timing window so bot-log failure details can be inspected without creating or assigning roles. Server only.",
     "`/clearrole role:<role>` - Delete a stuck temporary FullParty run role. Server only. Requires Manage Server or the configured bot moderator role.",
     "`/ping` - Quick bot responsiveness check.",
     "`/help` - Show this message.",

@@ -1,7 +1,7 @@
 import type { RESTPostAPIChatInputApplicationCommandsJSONBody } from "discord.js";
 
 import { applicationsCommand } from "./applications.js";
-import { assignRunRoleCommand } from "./assignRunRole.js";
+import { assignRunRoleCommand, debugAssignRunRoleCommand } from "./assignRunRole.js";
 import { clearRoleCommand } from "./clearRole.js";
 import { faqCommand } from "./faq.js";
 import { guildRunsCommand } from "./guildRuns.js";
@@ -21,6 +21,7 @@ export const commands = [
   applicationsCommand,
   assignRunRoleCommand,
   clearRoleCommand,
+  debugAssignRunRoleCommand,
   faqCommand,
   guildRunsCommand,
   helpCommand,

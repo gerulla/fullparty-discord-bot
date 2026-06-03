@@ -13,6 +13,7 @@ import {
   stopWebhookServer,
   type WebhookServerOptions,
 } from "../src/http/server.js";
+import { replyWithAutomationFailureDetails } from "../src/guildAutomation/automationFailureDetails.js";
 import type { GuildRunRoleMapping } from "../src/guildAutomation/runRoleStore.js";
 import { createRuntimeLogBuffer } from "../src/lib/runtimeLogBuffer.js";
 import { LatestPayloadStore } from "../src/payloads/latestPayloadStore.js";
@@ -268,6 +269,79 @@ describe("Fullparty webhook server", () => {
         unavailable: false,
       },
     ]);
+  });
+
+  it("queues guild member cache refreshes from the admin API", async () => {
+    const refreshCalls: string[] = [];
+    const context: BotContext = {
+      ...createContext(),
+      adminStore: createAdminStore(),
+      guildMemberCacheScheduler: {
+        getHealthSummary: () =>
+          Promise.resolve({
+            cachedGuildCount: 0,
+            failedGuildCount: 0,
+            ok: true,
+            oldestCacheAgeSeconds: null,
+            processing: 0,
+            queued: 0,
+            running: true,
+            staleGuildCount: 0,
+            status: "healthy",
+          }),
+        refreshLinkedGuildsFromDashboard: () => {
+          refreshCalls.push("refresh");
+
+          return Promise.resolve({
+            deletedUnavailableGuildCount: 2,
+            linkedGuildCount: 3,
+            obsoleteUnavailableGuildCount: 2,
+            queuedGuildCount: 3,
+            skippedGuildCount: 0,
+          });
+        },
+      } as BotContext["guildMemberCacheScheduler"],
+    };
+    const baseUrl = await listen(
+      createTestServer({
+        adminApiToken: "admin-token",
+        client: {
+          channels: { fetch: () => Promise.resolve(null) },
+          guilds: {
+            cache: new Map(),
+          },
+          isReady: () => true,
+          user: {
+            id: "bot-user-id",
+          },
+          ws: {
+            ping: 42,
+          },
+        } as never,
+        context,
+      }),
+    );
+
+    await expect(
+      fetchJson(`${baseUrl}/admin/api/guild-member-cache/refresh`, {
+        headers: {
+          authorization: "Bearer admin-token",
+        },
+        method: "POST",
+      }),
+    ).resolves.toMatchObject({
+      body: {
+        data: {
+          deletedUnavailableGuildCount: 2,
+          linkedGuildCount: 3,
+          obsoleteUnavailableGuildCount: 2,
+          queuedGuildCount: 3,
+          skippedGuildCount: 0,
+        },
+      },
+      status: 202,
+    });
+    expect(refreshCalls).toEqual(["refresh"]);
   });
 
   it("serves admin dashboard diagnostics with health reasons and failure details", async () => {
@@ -955,6 +1029,7 @@ describe("Fullparty webhook server", () => {
           reminder_type: "starting_soon",
           run_id: 123,
           type: "runs.starting_soon",
+          unlinked_participants: [],
         },
         kind: "run_reminder",
       },
@@ -1417,6 +1492,202 @@ describe("Fullparty webhook server", () => {
         },
       ],
     });
+  });
+
+  it("adds a failure details button to partial guild run reminder automation logs", async () => {
+    const logMessages: unknown[] = [];
+    const runRoleStore = createMemoryRunRoleStore();
+    const context: BotContext = {
+      ...createContext(),
+      guildRunRoles: runRoleStore,
+      guildSettings: {
+        get: (guildId) =>
+          Promise.resolve({
+            botLogChannelId: "bot-log-channel-id",
+            guildId,
+            syncDiscordNamesToFf14: false,
+            upcomingRaiderRoleId: "upcoming-raider-role-id",
+          }),
+        update: (guildId) => Promise.resolve({ guildId, syncDiscordNamesToFf14: false }),
+      },
+    };
+    const baseUrl = await listen(
+      createTestServer({
+        client: {
+          channels: {
+            fetch: () =>
+              Promise.resolve({
+                send: (message: unknown) => {
+                  logMessages.push(message);
+                  return Promise.resolve({ id: "bot-log-message-id" });
+                },
+              }),
+          },
+          guilds: {
+            fetch: () =>
+              Promise.resolve({
+                members: {
+                  fetch: (discordUserId: string) =>
+                    discordUserId === "missing-user"
+                      ? Promise.reject(new Error("Unknown Member"))
+                      : Promise.resolve({
+                          permissions: {
+                            has: () => true,
+                          },
+                          roles: {
+                            add: () => Promise.resolve({}),
+                            highest: {
+                              comparePositionTo: () => 1,
+                              id: "bot-role-id",
+                              name: "Bot Role",
+                            },
+                          },
+                        }),
+                  me: {
+                    permissions: {
+                      has: () => true,
+                    },
+                    roles: {
+                      highest: {
+                        comparePositionTo: () => 1,
+                        id: "bot-role-id",
+                        name: "Bot Role",
+                      },
+                    },
+                  },
+                },
+                channels: {
+                  fetch: () => Promise.resolve(new Map()),
+                },
+                roles: {
+                  cache: {
+                    get: (roleId: string) =>
+                      roleId === "upcoming-raider-role-id"
+                        ? {
+                            id: roleId,
+                            name: "Upcoming Raider Template",
+                            permissions: { bitfield: 0n },
+                          }
+                        : undefined,
+                  },
+                  create: () =>
+                    Promise.resolve({
+                      id: "run-role-id",
+                      name: "FullParty: Cloud of Darkness 21:00 UTC",
+                      permissions: { bitfield: 0n },
+                    }),
+                  fetch: (roleId: string) =>
+                    Promise.resolve(
+                      roleId === "upcoming-raider-role-id"
+                        ? {
+                            id: roleId,
+                            name: "Upcoming Raider Template",
+                            permissions: { bitfield: 0n },
+                          }
+                        : undefined,
+                    ),
+                },
+              }),
+          },
+        } as never,
+        context,
+      }),
+    );
+
+    await expect(
+      postAction(baseUrl, {
+        data: {
+          activity_title: "Cloud of Darkness",
+          discord_guild_id: "900100200300400500",
+          discord_user_ids: ["123", "missing-user"],
+          participants: [],
+          reminder_type: "starting_soon",
+          run_id: 123,
+          starts_at: "2026-05-30T21:00:00+00:00",
+          type: "runs.starting_soon",
+          unlinked_count: 1,
+          unlinked_participants: [
+            {
+              character: {
+                name: "No Discord",
+                world: "Omega",
+              },
+              discord_user_id: null,
+              group_role: null,
+              is_discord_linked: false,
+              is_group_member: false,
+              source: "slot",
+              user_id: 789,
+            },
+          ],
+        },
+        event: "discord.guild.run_reminder",
+      }),
+    ).resolves.toMatchObject({
+      body: {
+        result: {
+          assignedUserCount: 1,
+          failedUserCount: 1,
+        },
+      },
+      status: 200,
+    });
+
+    expect(logMessages[1]).toMatchObject({
+      components: [
+        {
+          components: [
+            {
+              custom_id: expect.stringMatching(/^automationfailures:/u) as string,
+              label: "Failure Details",
+            },
+          ],
+        },
+      ],
+      embeds: [
+        {
+          fields: expect.arrayContaining([
+            {
+              inline: false,
+              name: "Failure Details",
+              value: "`missing-user`: Unknown Member",
+            },
+          ]) as unknown[],
+          title: "🛡️ Role Assignment - Partial",
+        },
+      ],
+    });
+
+    const detailCustomId = (
+      logMessages[1] as {
+        components: [{ components: [{ custom_id: string }] }];
+      }
+    ).components[0].components[0].custom_id;
+    const detailReplies: unknown[] = [];
+
+    await replyWithAutomationFailureDetails({
+      customId: detailCustomId,
+      followUp: (message: unknown) => {
+        detailReplies.push(message);
+
+        return Promise.resolve({});
+      },
+      reply: (message: unknown) => {
+        detailReplies.push(message);
+
+        return Promise.resolve({});
+      },
+    } as never);
+
+    expect(detailReplies).toEqual([
+      expect.objectContaining({
+        content: expect.stringContaining(
+          "`No Discord [Omega]` - No Discord Account Linked. Group Member: no.",
+        ) as string,
+      }),
+    ]);
+    expect(JSON.stringify(detailReplies)).not.toContain("user 789");
+    expect(JSON.stringify(detailReplies)).not.toContain("Source:");
   });
 
   it("deletes the temporary run role when a guild run completes", async () => {

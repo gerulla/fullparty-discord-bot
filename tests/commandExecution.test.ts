@@ -9,7 +9,10 @@ import { describe, expect, it } from "vitest";
 
 import type { BotContext } from "../src/bot/context.js";
 import { applicationsCommand } from "../src/commands/applications.js";
-import { assignRunRoleCommand } from "../src/commands/assignRunRole.js";
+import {
+  assignRunRoleCommand,
+  debugAssignRunRoleCommand,
+} from "../src/commands/assignRunRole.js";
 import { clearRoleCommand } from "../src/commands/clearRole.js";
 import { faqCommand } from "../src/commands/faq.js";
 import { fullpartyCommand } from "../src/commands/fullparty.js";
@@ -737,7 +740,7 @@ describe("command execution", () => {
       {
         components: [
           {
-            custom_id: "guildruns:1379217636696789022:moderator-id:25:0",
+            custom_id: "guildruns:noop:previous:1379217636696789022:moderator-id:25:0",
             disabled: true,
             emoji: {
               animated: false,
@@ -899,7 +902,7 @@ describe("command execution", () => {
             type: 2,
           },
           {
-            custom_id: "guildruns:1379217636696789022:moderator-id:25:1",
+            custom_id: "guildruns:noop:next:1379217636696789022:moderator-id:25:1",
             disabled: true,
             emoji: {
               animated: false,
@@ -917,6 +920,73 @@ describe("command execution", () => {
     expect(fetchInputToUrl(calls[0]?.input)).toBe(
       "http://fullparty.test/api/integrations/discord-guilds/1379217636696789022/upcoming-runs?limit=25",
     );
+  });
+
+  it("uses unique disabled paginator button ids for a single /guildruns page", async () => {
+    const deferReply = createAsyncRecorder();
+    const editReply = createAsyncRecorder();
+    const context = createLinkedGuildContext(
+      createJsonFetcher({
+        data: [
+          {
+            display_name: "Only prog",
+            group: { name: "Guild Linked Group", slug: "guildgrp" },
+            id: 123,
+            starts_at: "2026-06-01T20:00:00+00:00",
+            status: "scheduled",
+          },
+        ],
+      }),
+    );
+
+    await guildRunsCommand.execute(
+      {
+        deferReply: deferReply.fn,
+        editReply: editReply.fn,
+        guildId: "1379217636696789022",
+        inGuild: () => true,
+        memberPermissions: new PermissionsBitField(PermissionFlagsBits.ManageGuild),
+        options: {
+          getInteger: () => 1,
+        },
+        user: {
+          id: "moderator-id",
+        },
+      } as unknown as ChatInputCommandInteraction,
+      context,
+    );
+
+    const message = getFirstMessageOptions(editReply);
+
+    expect(message.content).toBe(
+      "Found 1 upcoming FullParty run for this server. Page 1/1",
+    );
+    expect(message.components?.map((component) => component.toJSON())).toMatchObject([
+      {
+        components: [
+          {
+            custom_id: "guildruns:noop:previous:1379217636696789022:moderator-id:1:0",
+            disabled: true,
+            label: "Previous",
+          },
+          {
+            label: "Overview",
+          },
+          {
+            label: "Manage",
+          },
+          {
+            custom_id: "guildruns:assign:1379217636696789022:moderator-id:1:0:123",
+            label: "Assign Role",
+          },
+          {
+            custom_id: "guildruns:noop:next:1379217636696789022:moderator-id:1:0",
+            disabled: true,
+            label: "Next",
+          },
+        ],
+      },
+    ]);
   });
 
   it("posts upcoming FullParty runs to the configured member-facing channel", async () => {
@@ -1436,6 +1506,133 @@ describe("command execution", () => {
     expect(deferReply.calls).toEqual([[{ flags: MessageFlags.Ephemeral }]]);
     expect(editReply.calls[0]?.[0]).toMatchObject({
       content: expect.stringContaining("within 60 minutes") as string,
+    });
+  });
+
+  it("debug-runs guild role assignment outside the allowed time window", async () => {
+    const deferReply = createAsyncRecorder();
+    const editReply = createAsyncRecorder();
+    const startsAt = new Date(Date.now() + 90 * 60 * 1000).toISOString();
+    const context = createLinkedGuildContext(
+      createJsonFetcher({
+        data: {
+          discord_guild: {
+            id: "1379217636696789022",
+            name: "Role Guild",
+          },
+          discord_user_ids: ["123456789012345678"],
+          participants: [
+            {
+              character: {
+                name: "Giki Chomusuke",
+                world: "Lich",
+              },
+              discord_user_id: "123456789012345678",
+              user_id: 5,
+            },
+          ],
+          run: {
+            display_name: "Too Far Away",
+            id: 6932,
+            starts_at: startsAt,
+          },
+          total_placed_count: 1,
+          unlinked_count: 0,
+        },
+      }),
+    );
+
+    await debugAssignRunRoleCommand.execute(
+      {
+        client: {
+          channels: {
+            fetch: () => Promise.resolve(null),
+          },
+          guilds: {
+            fetch: () =>
+              Promise.resolve({
+                channels: {
+                  fetch: () => Promise.resolve(new Map()),
+                },
+                members: {
+                  fetch: () =>
+                    Promise.resolve({
+                      permissions: {
+                        has: () => true,
+                      },
+                      roles: {
+                        add: () => {
+                          throw new Error("Dry run should not assign roles.");
+                        },
+                        highest: {
+                          comparePositionTo: () => 1,
+                          id: "bot-role-id",
+                          name: "Bot Role",
+                        },
+                      },
+                    }),
+                  me: {
+                    permissions: {
+                      has: () => true,
+                    },
+                    roles: {
+                      highest: {
+                        comparePositionTo: () => 1,
+                        id: "bot-role-id",
+                        name: "Bot Role",
+                      },
+                    },
+                  },
+                },
+                roles: {
+                  cache: {
+                    get: (roleId: string) =>
+                      roleId === "template-role-id"
+                        ? {
+                            id: roleId,
+                            name: "Template Raider",
+                            permissions: { bitfield: 0n },
+                          }
+                        : undefined,
+                  },
+                  create: () => {
+                    throw new Error("Dry run should not create roles.");
+                  },
+                  fetch: (roleId: string) =>
+                    Promise.resolve(
+                      roleId === "template-role-id"
+                        ? {
+                            id: roleId,
+                            name: "Template Raider",
+                            permissions: { bitfield: 0n },
+                          }
+                        : undefined,
+                    ),
+                },
+              }),
+          },
+        },
+        deferReply: deferReply.fn,
+        editReply: editReply.fn,
+        guildId: "1379217636696789022",
+        inGuild: () => true,
+        memberPermissions: new PermissionsBitField(PermissionFlagsBits.ManageGuild),
+        options: {
+          getInteger: () => 6932,
+        },
+        user: {
+          id: "123456789012345678",
+        },
+      } as unknown as ChatInputCommandInteraction,
+      context,
+    );
+
+    expect(deferReply.calls).toEqual([[{ flags: MessageFlags.Ephemeral }]]);
+    expect(editReply.calls[0]?.[0]).toMatchObject({
+      content: expect.stringContaining("Debug role assignment checked") as string,
+    });
+    expect(editReply.calls[0]?.[0]).toMatchObject({
+      content: expect.stringContaining("No roles were created or assigned") as string,
     });
   });
 

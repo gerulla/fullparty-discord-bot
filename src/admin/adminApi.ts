@@ -22,10 +22,10 @@ export async function handleAdminApiRequest(
     return false;
   }
 
-  if (request.method !== "GET") {
+  if (request.method !== "GET" && request.method !== "POST") {
     sendJson(response, 405, {
       error: "method_not_allowed",
-      message: "Admin API only supports GET requests right now.",
+      message: "Admin API only supports GET and selected POST requests right now.",
     });
     return true;
   }
@@ -47,6 +47,32 @@ export async function handleAdminApiRequest(
   }
 
   await syncLiveGuildRuntime(options);
+
+  if (request.method === "POST") {
+    if (url.pathname === "/admin/api/guild-member-cache/refresh") {
+      if (!options.context.guildMemberCacheScheduler) {
+        sendJson(response, 503, {
+          error: "guild_member_cache_scheduler_unavailable",
+          message: "Guild member cache scheduler is not configured.",
+        });
+        return true;
+      }
+
+      const result =
+        await options.context.guildMemberCacheScheduler.refreshLinkedGuildsFromDashboard();
+
+      sendJson(response, 202, {
+        data: result,
+      });
+      return true;
+    }
+
+    sendJson(response, 404, {
+      error: "not_found",
+      message: "Admin API route not found.",
+    });
+    return true;
+  }
 
   const limit = getLimit(url);
   const store = options.context.adminStore;

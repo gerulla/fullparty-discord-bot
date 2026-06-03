@@ -116,6 +116,43 @@ describe("SqliteGuildMemberCacheStore", () => {
     });
   });
 
+  it("keeps obsolete guild cache rows but ignores them in snapshots and health", async () => {
+    const store = await createStore();
+
+    await store.replaceGuildMembers("guild-id", ["1", "2"], {
+      memberCount: 2,
+      nextRefreshAfter: new Date("2026-05-31T10:00:00.000Z"),
+      refreshedAt: new Date("2026-05-30T10:00:00.000Z"),
+    });
+    await store.markGuildObsolete(
+      "guild-id",
+      new Date("2026-05-30T11:00:00.000Z"),
+    );
+
+    await expect(store.listCachedGuildIds()).resolves.toEqual([]);
+    await expect(
+      store.getSnapshot("guild-id", {
+        includeUserIds: true,
+        now: new Date("2026-05-30T12:00:00.000Z"),
+      }),
+    ).resolves.toMatchObject({
+      cachedMemberCount: 0,
+      discordUserIds: [],
+      refreshStatus: "missing",
+    });
+    await expect(
+      store.getHealthSummary({
+        now: new Date("2026-06-10T10:00:00.000Z"),
+        staleAfterMs: 86_400_000,
+        unhealthyAfterMs: 604_800_000,
+      }),
+    ).resolves.toMatchObject({
+      cachedGuildCount: 0,
+      staleGuildCount: 0,
+      status: "healthy",
+    });
+  });
+
   async function createStore(): Promise<SqliteGuildMemberCacheStore> {
     const directory = await mkdtemp(join(tmpdir(), "fullparty-member-cache-"));
     const databasePath = join(directory, "member-cache.sqlite");

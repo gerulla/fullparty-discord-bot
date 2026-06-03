@@ -259,6 +259,8 @@ const runtimeLogs = ref<RuntimeLogEntry[]>([]);
 const runtimeLogMeta = ref<RuntimeLogsResponse["meta"] | null>(null);
 const isLogLoading = ref(false);
 const logErrorMessage = ref("");
+const isMemberCacheRefreshing = ref(false);
+const memberCacheRefreshMessage = ref("");
 let logPollInterval: ReturnType<typeof window.setInterval> | undefined;
 
 const isLoggedIn = computed(() => dashboard.value !== null);
@@ -532,6 +534,67 @@ async function refreshDashboard(): Promise<void> {
   }
 }
 
+async function refreshGuildMemberCache(): Promise<void> {
+  const savedToken = sessionStorage.getItem(storageKey);
+
+  if (!savedToken) {
+    logout();
+    return;
+  }
+
+  isMemberCacheRefreshing.value = true;
+  memberCacheRefreshMessage.value = "";
+
+  try {
+    const response = await fetch("/admin/api/guild-member-cache/refresh", {
+      headers: {
+        authorization: `Bearer ${savedToken}`,
+      },
+      method: "POST",
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        response.status === 401
+          ? "Invalid token."
+          : "Unable to queue guild member cache refresh.",
+      );
+    }
+
+    const body = (await response.json()) as {
+      data: {
+        deletedUnavailableGuildCount: number;
+        linkedGuildCount: number;
+        obsoleteUnavailableGuildCount?: number;
+        queuedGuildCount: number;
+        skippedGuildCount: number;
+      };
+    };
+    const obsoleteUnavailableGuildCount =
+      body.data.obsoleteUnavailableGuildCount ?? body.data.deletedUnavailableGuildCount;
+
+    memberCacheRefreshMessage.value = [
+      `Queued ${formatNumber(body.data.queuedGuildCount)} linked guild refresh job(s).`,
+      body.data.skippedGuildCount > 0
+        ? `${formatNumber(body.data.skippedGuildCount)} already queued/running.`
+        : "",
+      obsoleteUnavailableGuildCount > 0
+        ? `${formatNumber(obsoleteUnavailableGuildCount)} unavailable cache row(s) marked obsolete.`
+        : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    await refreshDashboard();
+  } catch (error) {
+    memberCacheRefreshMessage.value =
+      error instanceof Error
+        ? error.message
+        : "Unable to queue guild member cache refresh.";
+  } finally {
+    isMemberCacheRefreshing.value = false;
+  }
+}
+
 async function fetchDashboard(apiToken: string): Promise<DashboardPayload> {
   const response = await fetch("/admin/api/metrics", {
     headers: {
@@ -581,6 +644,7 @@ function logout(): void {
   runtimeLogs.value = [];
   runtimeLogMeta.value = null;
   logErrorMessage.value = "";
+  memberCacheRefreshMessage.value = "";
   stopLogPolling();
   sessionStorage.removeItem(storageKey);
 }
@@ -1257,7 +1321,23 @@ function capitalize(value: string): string {
             </article>
 
             <article class="panel info-panel">
-              <h2>Member Cache</h2>
+              <div class="panel-heading compact-heading">
+                <div>
+                  <h2>Member Cache</h2>
+                  <p>Refresh linked visible guilds and mark unavailable cache rows obsolete.</p>
+                </div>
+                <button
+                  class="inline-button"
+                  type="button"
+                  :disabled="isMemberCacheRefreshing"
+                  @click="refreshGuildMemberCache"
+                >
+                  {{ isMemberCacheRefreshing ? "Queueing..." : "Force refresh" }}
+                </button>
+              </div>
+              <p v-if="memberCacheRefreshMessage" class="helper-message">
+                {{ memberCacheRefreshMessage }}
+              </p>
               <dl>
                 <div>
                   <dt>Status</dt>

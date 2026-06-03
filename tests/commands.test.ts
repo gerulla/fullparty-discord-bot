@@ -12,6 +12,7 @@ describe("commands", () => {
       "applications",
       "assignrunrole",
       "clearrole",
+      "debugassignrunrole",
       "faq",
       "guildruns",
       "help",
@@ -26,6 +27,9 @@ describe("commands", () => {
     const applications = commands.find((command) => command.name === "applications");
     const assignrunrole = commands.find((command) => command.name === "assignrunrole");
     const clearrole = commands.find((command) => command.name === "clearrole");
+    const debugassignrunrole = commands.find(
+      (command) => command.name === "debugassignrunrole",
+    );
     const faq = commands.find((command) => command.name === "faq");
     const guildruns = commands.find((command) => command.name === "guildruns");
     const help = commands.find((command) => command.name === "help");
@@ -39,6 +43,7 @@ describe("commands", () => {
     expect(applications).toBeDefined();
     expect(assignrunrole).toBeDefined();
     expect(clearrole).toBeDefined();
+    expect(debugassignrunrole).toBeDefined();
     expect(faq).toBeDefined();
     expect(guildruns).toBeDefined();
     expect(help).toBeDefined();
@@ -53,6 +58,7 @@ describe("commands", () => {
       !applications ||
       !assignrunrole ||
       !clearrole ||
+      !debugassignrunrole ||
       !faq ||
       !guildruns ||
       !help ||
@@ -64,7 +70,7 @@ describe("commands", () => {
       !setup
     ) {
       throw new Error(
-        "Expected applications, assignrunrole, clearrole, faq, guildruns, help, link, ping, postruns, payload, runs, and setup commands to be registered.",
+        "Expected applications, assignrunrole, clearrole, debugassignrunrole, faq, guildruns, help, link, ping, postruns, payload, runs, and setup commands to be registered.",
       );
     }
 
@@ -174,6 +180,14 @@ describe("commands", () => {
     ]);
     expect(assignrunrole.contexts).toEqual([InteractionContextType.Guild]);
     expect(assignrunrole.options?.[0]).toMatchObject({
+      name: "run_id",
+      required: true,
+    });
+    expect(debugassignrunrole.integration_types).toEqual([
+      ApplicationIntegrationType.GuildInstall,
+    ]);
+    expect(debugassignrunrole.contexts).toEqual([InteractionContextType.Guild]);
+    expect(debugassignrunrole.options?.[0]).toMatchObject({
       name: "run_id",
       required: true,
     });

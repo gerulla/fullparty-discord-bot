@@ -73,10 +73,12 @@ function createPaginatedGuildUpcomingRunsMessage(
       new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder()
           .setCustomId(
-            createGuildRunsPageCustomId({
-              ...pagination,
-              page: Math.max(0, page - 1),
-            }),
+            page === 0
+              ? createGuildRunsNoopCustomId(pagination, page, "previous")
+              : createGuildRunsPageCustomId({
+                  ...pagination,
+                  page: page - 1,
+                }),
           )
           .setDisabled(page === 0)
           .setEmoji("⬅️")
@@ -97,10 +99,12 @@ function createPaginatedGuildUpcomingRunsMessage(
         createAssignRoleButton(visibleRun, pagination, page),
         new ButtonBuilder()
           .setCustomId(
-            createGuildRunsPageCustomId({
-              ...pagination,
-              page: Math.min(pageCount - 1, page + 1),
-            }),
+            page >= pageCount - 1
+              ? createGuildRunsNoopCustomId(pagination, page, "next")
+              : createGuildRunsPageCustomId({
+                  ...pagination,
+                  page: page + 1,
+                }),
           )
           .setDisabled(page >= pageCount - 1)
           .setEmoji("➡️")

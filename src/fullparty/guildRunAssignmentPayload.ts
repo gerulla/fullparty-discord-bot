@@ -117,6 +117,7 @@ function normalizeCandidate(
     total_placed_count: candidate.total_placed_count,
     type,
     unlinked_count: candidate.unlinked_count,
+    unlinked_participants: normalizeParticipants(candidate.unlinked_participants),
   };
 }
 
@@ -218,6 +219,7 @@ function isRunLikeCandidate(value: Record<string, unknown>): boolean {
     "run_id",
     "starts_at",
     "type",
+    "unlinked_participants",
   ].some((key) => key in value);
 }
 

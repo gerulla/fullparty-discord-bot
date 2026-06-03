@@ -158,6 +158,7 @@ function createRunReminderData(
     reminder_type: reminderType,
     run_id: overrides.runId ?? 123,
     type: reminderType === "starting_now" ? "runs.starting_now" : "runs.starting_soon",
+    unlinked_participants: [],
   };
 }
 

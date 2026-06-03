@@ -54,8 +54,8 @@ export function createBotClient(context: BotContext): Client {
     void context.guildMemberCacheScheduler?.enqueueRefresh(guild.id, "guild_joined");
   });
   client.on(Events.GuildDelete, (guild) => {
-    void context.guildMemberCache?.deleteGuild(guild.id).catch((error: unknown) => {
-      context.logger.warn("Unable to purge guild member cache after guild removal.", {
+    void context.guildMemberCache?.markGuildObsolete(guild.id).catch((error: unknown) => {
+      context.logger.warn("Unable to mark guild member cache obsolete after guild removal.", {
         discordGuildId: guild.id,
         error,
       });

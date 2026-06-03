@@ -1,7 +1,16 @@
 import { z } from "zod";
 
 const guildRunParticipantSchema = z.looseObject({
-  discord_user_id: z.string().trim().min(1).optional(),
+  character: z
+    .looseObject({
+      name: z.string().trim().min(1),
+      world: z.string().trim().min(1),
+    })
+    .optional(),
+  discord_user_id: z.string().trim().min(1).nullable().optional(),
+  group_role: z.string().trim().min(1).nullable().optional(),
+  is_discord_linked: z.boolean().optional(),
+  is_group_member: z.boolean().optional(),
   primary_character: z
     .looseObject({
       name: z.string().trim().min(1),
@@ -9,6 +18,7 @@ const guildRunParticipantSchema = z.looseObject({
     })
     .optional(),
   should_keep_group_role: z.boolean().optional(),
+  source: z.string().trim().min(1).optional(),
   user_id: z.number().int().positive().optional(),
 });
 
@@ -25,6 +35,7 @@ export const guildRunReminderDataSchema = z.looseObject({
   run_id: z.number().int().positive(),
   starts_at: z.string().trim().min(1).optional(),
   type: z.enum(["runs.starting_soon", "runs.starting_now"]),
+  unlinked_participants: z.array(guildRunParticipantSchema).default([]),
 });
 
 export type GuildRunReminderData = z.infer<typeof guildRunReminderDataSchema>;

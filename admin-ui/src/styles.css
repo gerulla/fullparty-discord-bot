@@ -379,6 +379,13 @@ nav {
   line-height: 1.45;
 }
 
+.helper-message {
+  margin: -4px 0 0;
+  color: #d8d2e8;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
 .info-panel {
   display: grid;
   align-content: start;

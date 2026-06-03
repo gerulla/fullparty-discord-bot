@@ -1,4 +1,5 @@
 import {
+  type ButtonInteraction,
   type ChatInputCommandInteraction,
   type Interaction,
   MessageFlags,
@@ -8,6 +9,10 @@ import type { BotContext } from "../bot/context.js";
 import { getCommandMap, getComponentCommand } from "../commands/index.js";
 import type { ChatInputCommand, SetupComponentInteraction } from "../commands/types.js";
 import { FullpartyApiError } from "../fullparty/client.js";
+import {
+  isAutomationFailureDetailsCustomId,
+  replyWithAutomationFailureDetails,
+} from "../guildAutomation/automationFailureDetails.js";
 import { recordFailureSafely, serializeFailureError } from "../health/failureReporter.js";
 
 export function createInteractionHandler(
@@ -22,10 +27,25 @@ export function createInteractionHandler(
       return;
     }
 
+    if (
+      typeof interaction.isButton === "function" &&
+      interaction.isButton() &&
+      isAutomationFailureDetailsCustomId(interaction.customId)
+    ) {
+      await handleAutomationFailureDetailsInteraction(interaction);
+      return;
+    }
+
     if (isSetupComponentInteraction(interaction)) {
       await handleComponentInteraction(interaction, context, availableCommands);
     }
   };
+}
+
+async function handleAutomationFailureDetailsInteraction(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  await replyWithAutomationFailureDetails(interaction);
 }
 
 async function handleChatInputCommand(

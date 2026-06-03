@@ -20,7 +20,9 @@ const maxAfterStartMs = 15 * 60 * 1000;
 
 type GuildRunRoleAssignmentRunnerOptions = {
   client: Client;
+  commandName?: string | undefined;
   context: Parameters<ChatInputCommand["execute"]>[1];
+  debugBypassWindow?: boolean | undefined;
   guildId: string;
   responder: {
     editReply(options: InteractionEditReplyOptions | string): Promise<unknown>;
@@ -77,14 +79,68 @@ export const assignRunRoleCommand: ChatInputCommand = {
   },
 };
 
+export const debugAssignRunRoleCommand: ChatInputCommand = {
+  data: new SlashCommandBuilder()
+    .setName("debugassignrunrole")
+    .setDescription("Debug-run temporary FullParty role assignment for any run.")
+    .setIntegrationTypes(ApplicationIntegrationType.GuildInstall)
+    .setContexts(InteractionContextType.Guild)
+    .addIntegerOption((option) =>
+      option
+        .setName("run_id")
+        .setDescription("The FullParty run ID to debug role assignment for.")
+        .setMinValue(1)
+        .setRequired(true),
+    ),
+  async execute(interaction, context) {
+    if (!(await requireGuildBotModerator(interaction, context))) {
+      return;
+    }
+
+    const guildId = interaction.guildId;
+
+    if (!guildId) {
+      throw new Error("Expected debugassignrunrole interaction to include a guild id.");
+    }
+
+    const settings = await context.guildSettings.get(guildId);
+
+    if (!settings.linkedAt) {
+      await interaction.reply({
+        content:
+          "This Discord server is not linked to a FullParty group yet. Use `/link token:<code>` with a server link token from FullParty first.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const runId = interaction.options.getInteger("run_id", true);
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    await runGuildRunRoleAssignment({
+      client: interaction.client,
+      commandName: "debugassignrunrole",
+      context,
+      debugBypassWindow: true,
+      guildId,
+      responder: interaction,
+      runId,
+    });
+  },
+};
+
 export async function runGuildRunRoleAssignment({
   client,
+  commandName = "assignrunrole",
   context,
+  debugBypassWindow = false,
   guildId,
   responder,
   runId,
 }: GuildRunRoleAssignmentRunnerOptions): Promise<void> {
   const response = await fetchRunRoleAssignmentPayload(
+    commandName,
     responder,
     context,
     guildId,
@@ -119,7 +175,9 @@ export async function runGuildRunRoleAssignment({
     return;
   }
 
-  const windowError = getRunAssignmentWindowError(data.starts_at);
+  const windowError = debugBypassWindow
+    ? undefined
+    : getRunAssignmentWindowError(data.starts_at);
 
   if (windowError) {
     await responder.editReply({ content: windowError });
@@ -132,14 +190,20 @@ export async function runGuildRunRoleAssignment({
       context,
     },
     data,
+    {
+      dryRun: debugBypassWindow,
+    },
   );
 
   await responder.editReply({
-    content: createAssignmentResultMessage(data.run_id, result, data),
+    content: createAssignmentResultMessage(data.run_id, result, data, {
+      debugBypassWindow,
+    }),
   });
 }
 
 async function fetchRunRoleAssignmentPayload(
+  commandName: string,
   responder: GuildRunRoleAssignmentRunnerOptions["responder"],
   context: Parameters<ChatInputCommand["execute"]>[1],
   guildId: string,
@@ -147,7 +211,7 @@ async function fetchRunRoleAssignmentPayload(
 ): Promise<unknown> {
   try {
     return await captureFullpartyCommandPayload({
-      commandName: "assignrunrole",
+      commandName,
       discordGuildId: guildId,
       payloads: context.payloads,
       request: () => context.fullparty.getDiscordGuildRunRoleAssignment(guildId, runId),
@@ -191,6 +255,7 @@ function createAssignmentResultMessage(
   runId: number,
   result: Record<string, unknown>,
   data: Record<string, unknown>,
+  options: { debugBypassWindow?: boolean | undefined } = {},
 ): string {
   const assignedUserCount = getNumber(result, "assignedUserCount");
   const requestedUserCount = getNumber(result, "requestedUserCount");
@@ -206,7 +271,9 @@ function createAssignmentResultMessage(
 
   if (skippedReason) {
     return [
-      `⚠️ Role assignment checked for Run #${String(runId)}, but nothing was assigned.`,
+      options.debugBypassWindow
+      ? `🧪 Debug role assignment checked for Run #${String(runId)}, but nothing was assigned.`
+      : `⚠️ Role assignment checked for Run #${String(runId)}, but nothing was assigned.`,
       roleLine,
       `Reason: ${humanizeSkippedReason(skippedReason)}`,
       "Check the bot-log channel for the full status embed.",
@@ -214,7 +281,12 @@ function createAssignmentResultMessage(
   }
 
   return [
-    `✅ Role assignment ran for Run #${String(runId)}.`,
+    options.debugBypassWindow
+      ? `🧪 Debug role assignment checked for Run #${String(runId)}.`
+      : `✅ Role assignment ran for Run #${String(runId)}.`,
+    options.debugBypassWindow
+      ? "Timing checks were bypassed. No roles were created or assigned."
+      : undefined,
     `Assigned ${String(assignedUserCount)}/${String(requestedUserCount)} users.`,
     totalPlacedCount > 0
       ? `Placed users: ${String(totalPlacedCount)} total${unlinkedCount > 0 ? `, ${String(unlinkedCount)} without linked Discord` : ""}.`

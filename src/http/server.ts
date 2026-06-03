@@ -17,6 +17,11 @@ import type {
 import { handleAdminUiRequest } from "../admin/adminUi.js";
 import type { BotContext } from "../bot/context.js";
 import {
+  createAutomationFailureDetailsCustomId,
+  storeAutomationFailureDetails,
+  type AutomationFailureDetailsSection,
+} from "../guildAutomation/automationFailureDetails.js";
+import {
   createDiscordGuildSnapshot,
   serializeGuildSettings,
 } from "../guildAutomation/guildSnapshot.js";
@@ -109,6 +114,9 @@ type FullpartyEvent = z.infer<typeof fullpartyEventSchema>;
 
 type ActionResult = Record<string, unknown>;
 type GuildAutomationProcessorOptions = Pick<WebhookServerOptions, "client" | "context">;
+type RoleAssignmentProcessorOptions = {
+  dryRun?: boolean | undefined;
+};
 type DmDeliveryMetadata = {
   eventType?: string | undefined;
   notificationType?: string | undefined;
@@ -699,9 +707,15 @@ async function sendGuildRunAutomationStartedMessage(
 export async function processGuildRunRoleAssignment(
   options: GuildAutomationProcessorOptions,
   data: GuildRunReminderData,
+  processorOptions: RoleAssignmentProcessorOptions = {},
 ): Promise<ActionResult> {
   const settings = await options.context.guildSettings.get(data.discord_guild_id);
-  const result = await assignUpcomingRaiderRole(options, data, settings);
+  const result = await assignUpcomingRaiderRole(
+    options,
+    data,
+    settings,
+    processorOptions,
+  );
 
   recordRoleAssignmentAutomationTelemetry(options, data, result);
 
@@ -1068,12 +1082,15 @@ async function assignUpcomingRaiderRole(
   options: GuildAutomationProcessorOptions,
   data: GuildRunReminderData,
   settings: GuildSettings,
+  processorOptions: RoleAssignmentProcessorOptions = {},
 ): Promise<ActionResult> {
   const discordUserIds = getRunReminderDiscordUserIds(data);
+  const dryRun = processorOptions.dryRun === true;
   const baseResult = {
     discordGuildId: data.discord_guild_id,
     reminderType: data.reminder_type,
     requestedUserCount: discordUserIds.length,
+    ...(dryRun ? { roleDryRun: true } : {}),
     runId: data.run_id,
     type: data.type,
   };
@@ -1096,7 +1113,7 @@ async function assignUpcomingRaiderRole(
     return result;
   }
 
-  if (!options.context.guildRunRoles) {
+  if (!dryRun && !options.context.guildRunRoles) {
     const result = {
       ...baseResult,
       assignedUserCount: 0,
@@ -1131,6 +1148,23 @@ async function assignUpcomingRaiderRole(
       skippedReason: "no_discord_users",
       templateRoleId: settings.upcomingRaiderRoleId,
     };
+
+    await sendBotLogMessage(
+      options,
+      settings.botLogChannelId,
+      buildRunReminderRoleSyncLogMessage(data, result),
+    );
+
+    return result;
+  }
+
+  if (dryRun) {
+    const result = await inspectUpcomingRaiderRoleAssignment(
+      options,
+      data,
+      settings,
+      baseResult,
+    );
 
     await sendBotLogMessage(
       options,
@@ -1253,6 +1287,88 @@ async function assignUpcomingRaiderRole(
   );
 
   return result;
+}
+
+async function inspectUpcomingRaiderRoleAssignment(
+  options: GuildAutomationProcessorOptions,
+  data: GuildRunReminderData,
+  settings: GuildSettings,
+  baseResult: ActionResult,
+): Promise<ActionResult> {
+  const failures: RunReminderFailure[] = [];
+  const startedAt = Date.now();
+  let assignableUserCount = 0;
+  let templateRoleId: string | undefined = settings.upcomingRaiderRoleId;
+
+  try {
+    const guild = await fetchGuildRunReminderGuild(options.client, data.discord_guild_id);
+    const templateRole = settings.upcomingRaiderRoleId
+      ? await fetchGuildRole(guild, settings.upcomingRaiderRoleId)
+      : undefined;
+
+    if (!settings.upcomingRaiderRoleId || !templateRole) {
+      return {
+        ...baseResult,
+        assignedUserCount: 0,
+        copiedOverwriteCount: 0,
+        failedUserCount: 0,
+        roleProcessingTimeMs: Date.now() - startedAt,
+        skippedReason: settings.upcomingRaiderRoleId
+          ? "template_role_not_found"
+          : "upcoming_raider_role_not_configured",
+        templateRoleId: settings.upcomingRaiderRoleId,
+      };
+    }
+
+    templateRoleId = templateRole.id;
+
+    const preflightFailure = getRunRolePreflightFailure(guild, templateRole);
+
+    if (preflightFailure) {
+      return {
+        ...baseResult,
+        assignedUserCount: 0,
+        copiedOverwriteCount: 0,
+        failedUserCount: 0,
+        roleProcessingTimeMs: Date.now() - startedAt,
+        skippedReason: preflightFailure,
+        templateRoleId,
+      };
+    }
+
+    for (const discordUserId of getRunReminderDiscordUserIds(data)) {
+      try {
+        const member = await guild.members.fetch(discordUserId);
+
+        if (!isRoleAssignableMember(member)) {
+          throw new Error(`Discord member ${discordUserId} cannot receive roles.`);
+        }
+
+        assignableUserCount += 1;
+      } catch (error) {
+        failures.push({
+          discordUserId,
+          error: getErrorMessage(error),
+        });
+      }
+    }
+  } catch (error) {
+    failures.push({
+      discordUserId: "*",
+      error: getErrorMessage(error),
+    });
+  }
+
+  return {
+    ...baseResult,
+    assignedUserCount: assignableUserCount,
+    copiedOverwriteCount: 0,
+    createdRunRole: false,
+    failedUserCount: failures.length,
+    failures,
+    roleProcessingTimeMs: Date.now() - startedAt,
+    templateRoleId,
+  };
 }
 
 type EnsureRunRoleResult = {
@@ -1622,11 +1738,13 @@ function getRunReminderNicknameTargets(data: GuildRunReminderData): NicknameSync
   const targetsByUserId = new Map<string, NicknameSyncTarget>();
 
   for (const participant of data.participants) {
-    if (!participant.discord_user_id || !participant.primary_character) {
+    const character = getParticipantCharacter(participant);
+
+    if (!participant.discord_user_id || !character) {
       continue;
     }
 
-    const nickname = formatCharacterNickname(participant.primary_character);
+    const nickname = formatCharacterNickname(character);
 
     if (!nickname) {
       continue;
@@ -2043,11 +2161,13 @@ function buildRunReminderRoleSyncLogMessage(
   const copiedOverwriteCount =
     typeof result.copiedOverwriteCount === "number" ? result.copiedOverwriteCount : 0;
   const createdRunRole = result.createdRunRole === true;
+  const dryRun = result.roleDryRun === true;
   const roleId = getResultString(result, "roleId");
   const roleName = getResultString(result, "roleName");
   const skippedReason = getResultString(result, "skippedReason");
   const templateRoleId = getResultString(result, "templateRoleId");
   const failures = getResultFailures(result, "failures");
+  const unlinkedCount = getLooseNumber(data, "unlinked_count");
   const status = getRoleSyncStatus({
     assignedUserCount,
     failedUserCount,
@@ -2058,18 +2178,18 @@ function buildRunReminderRoleSyncLogMessage(
   const fields: APIEmbedField[] = [
     {
       inline: true,
-      name: "✅ Successful Assignments",
-      value: `${String(successfulAssignments)} ${formatPlural(successfulAssignments, "user")}\nassigned`,
+      name: dryRun ? "✅ Eligible Assignments" : "✅ Successful Assignments",
+      value: `${String(successfulAssignments)} ${formatPlural(successfulAssignments, "user")}\n${dryRun ? "would assign" : "assigned"}`,
     },
     {
       inline: true,
-      name: "❌ Failed Assignments",
+      name: dryRun ? "❌ Failed Checks" : "❌ Failed Assignments",
       value: `${String(failedUserCount)} ${formatPlural(failedUserCount, "user")}\nfailed`,
     },
     {
       inline: true,
       name: "📈 Success Rate",
-      value: `${formatPercent(successfulAssignments, requestedUserCount)}\nassignment rate`,
+      value: `${formatPercent(successfulAssignments, requestedUserCount)}\n${dryRun ? "check rate" : "assignment rate"}`,
     },
     {
       inline: true,
@@ -2078,7 +2198,9 @@ function buildRunReminderRoleSyncLogMessage(
         ? [`<@&${roleId}>`, roleName ? `\`${roleName}\`` : undefined]
             .filter((value): value is string => Boolean(value))
             .join("\n")
-        : "_Not created_",
+        : dryRun
+          ? "_Dry run only_"
+          : "_Not created_",
     },
     {
       inline: true,
@@ -2088,12 +2210,16 @@ function buildRunReminderRoleSyncLogMessage(
     {
       inline: true,
       name: "🔐 Channel Access",
-      value: `${String(copiedOverwriteCount)} ${formatPlural(copiedOverwriteCount, "overwrite")}\ncopied`,
+      value: dryRun
+        ? "Not copied\ndry run"
+        : `${String(copiedOverwriteCount)} ${formatPlural(copiedOverwriteCount, "overwrite")}\ncopied`,
     },
     {
       inline: true,
       name: "✨ Role State",
-      value: skippedReason
+      value: dryRun
+        ? "Not created (dry run)"
+        : skippedReason
         ? "Not created"
         : createdRunRole
           ? "Created for this run"
@@ -2101,7 +2227,14 @@ function buildRunReminderRoleSyncLogMessage(
     },
   ];
 
-  if (skippedReason) {
+  if (dryRun) {
+    fields.push({
+      inline: false,
+      name: "ℹ️ Note",
+      value:
+        "Dry run only. No roles were created, channel overwrites copied, or members assigned.",
+    });
+  } else if (skippedReason) {
     fields.push({
       inline: false,
       name: "ℹ️ Note",
@@ -2125,8 +2258,16 @@ function buildRunReminderRoleSyncLogMessage(
   return createBotLogEmbedMessage({
     color: status.color,
     description: createRunReminderDescription(data, requestedUserCount, skippedReason),
+    failureDetailsId: createAutomationFailureDetailsId({
+      context: createAutomationFailureDetailsContext(data),
+      sections: [
+        createAutomationFailureSection("Role Assignment Failures", failures),
+        createUnlinkedPlacedUsersSection(data, unlinkedCount),
+      ],
+      title: "Role Assignment Failure Details",
+    }),
     fields,
-    title: `🛡️ Role Assignment - ${status.titleSuffix}`,
+    title: `${dryRun ? "🧪 Role Assignment Dry Run" : "🛡️ Role Assignment"} - ${status.titleSuffix}`,
   });
 }
 
@@ -2212,6 +2353,11 @@ function buildRunReminderNicknameSyncLogMessage(
   return createBotLogEmbedMessage({
     color: status.color,
     description: createRunReminderDescription(data, requestedUserCount, skippedReason),
+    failureDetailsId: createAutomationFailureDetailsId({
+      context: createAutomationFailureDetailsContext(data),
+      sections: [createAutomationFailureSection("Nickname Sync Failures", failures)],
+      title: "Nickname Sync Failure Details",
+    }),
     fields,
     title: `🏷️ Nickname Synchronization - ${status.titleSuffix}`,
   });
@@ -2269,6 +2415,11 @@ function buildRunRoleCleanupLogMessage(
   return createBotLogEmbedMessage({
     color: status.color,
     description: createRunCompletedDescription(data),
+    failureDetailsId: createAutomationFailureDetailsId({
+      context: createRunCompletedFailureDetailsContext(data),
+      sections: [createAutomationFailureSection("Run Role Cleanup Failures", failures)],
+      title: "Run Role Cleanup Failure Details",
+    }),
     fields,
     title: `🧹 Run Role Cleanup - ${status.titleSuffix}`,
   });
@@ -2304,6 +2455,142 @@ type RunReminderFailure = {
   discordUserId: string;
   error: string;
 };
+
+function createAutomationFailureDetailsId(input: {
+  context?: string | undefined;
+  sections: (AutomationFailureDetailsSection | undefined)[];
+  title: string;
+}): string | undefined {
+  const sections = input.sections.filter(
+    (section): section is AutomationFailureDetailsSection =>
+      section !== undefined && section.details.length > 0,
+  );
+
+  if (sections.length === 0) {
+    return undefined;
+  }
+
+  return storeAutomationFailureDetails({
+    context: input.context,
+    sections,
+    title: input.title,
+  });
+}
+
+function createAutomationFailureSection(
+  title: string,
+  failures: RunReminderFailure[],
+): AutomationFailureDetailsSection | undefined {
+  if (failures.length === 0) {
+    return undefined;
+  }
+
+  return {
+    details: failures.map((failure) => ({
+      reason: failure.error,
+      subject:
+        failure.discordUserId === "*"
+          ? "General automation failure"
+          : failure.discordUserId,
+    })),
+    title,
+  };
+}
+
+function createUnlinkedPlacedUsersSection(
+  data: GuildRunReminderData,
+  unlinkedCount: number,
+): AutomationFailureDetailsSection | undefined {
+  const unlinkedParticipants = data.unlinked_participants;
+
+  if (unlinkedParticipants.length > 0) {
+    return {
+      details: unlinkedParticipants.map((participant) => {
+        const characterLabel = formatParticipantCharacterLabel(participant);
+        const subject = characterLabel ?? "Unlinked placed user";
+        const context = [
+          typeof participant.is_group_member === "boolean"
+            ? `Group Member: ${participant.is_group_member ? "yes" : "no"}`
+            : undefined,
+          participant.group_role ? `Group Role: ${participant.group_role}` : undefined,
+        ]
+          .filter((value): value is string => Boolean(value))
+          .join(", ");
+
+        return {
+          reason: `No Discord Account Linked.${context ? ` ${context}.` : ""}`,
+          subject,
+        };
+      }),
+      title: "Users Not Linked On FullParty",
+    };
+  }
+
+  if (unlinkedCount <= 0) {
+    return undefined;
+  }
+
+  return {
+    details: [
+      {
+        reason:
+          "FullParty reported placed users without an active linked Discord account. The site only sends this as a count, so the bot cannot name those users here yet.",
+        subject: `${String(unlinkedCount)} unlinked ${formatPlural(unlinkedCount, "user")}`,
+      },
+    ],
+    title: "Users Not Linked On FullParty",
+  };
+}
+
+function formatParticipantCharacterLabel(participant: {
+  character?: { name: string; world: string } | undefined;
+  primary_character?: { name: string; world: string } | undefined;
+}): string | undefined {
+  const character = getParticipantCharacter(participant);
+
+  if (!character) {
+    return undefined;
+  }
+
+  return `${character.name} [${character.world}]`;
+}
+
+function getParticipantCharacter(participant: {
+  character?: { name: string; world: string } | undefined;
+  primary_character?: { name: string; world: string } | undefined;
+}): { name: string; world: string } | undefined {
+  return participant.primary_character ?? participant.character;
+}
+
+function createAutomationFailureDetailsContext(data: GuildRunReminderData): string {
+  const runTitle = getRunAutomationActivityTitle(data);
+  const runLabel = runTitle
+    ? `Run #${String(data.run_id)} - ${runTitle}`
+    : `Run #${String(data.run_id)}`;
+
+  return [
+    runLabel,
+    formatReminderType(data.reminder_type).replaceAll("*", ""),
+    formatRunStartsLine(data.starts_at)?.replace("**Starts:** ", "Starts: "),
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join("\n");
+}
+
+function createRunCompletedFailureDetailsContext(data: GuildRunCompletedData): string {
+  const runTitle = getRunAutomationActivityTitle(data);
+  const runLabel = runTitle
+    ? `Run #${String(data.run_id)} - ${runTitle}`
+    : `Run #${String(data.run_id)}`;
+
+  return [
+    runLabel,
+    data.type === "runs.cancelled" ? "Cancelled" : "Completed",
+    data.group_slug ? `Group: ${data.group_slug}` : undefined,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join("\n");
+}
 
 function getRoleSyncStatus(input: RoleSyncStatusInput): SyncStatus {
   if (input.skippedReason) {
@@ -2352,6 +2639,7 @@ function getCleanupStatus(input: CleanupStatusInput): SyncStatus {
 function createBotLogEmbedMessage(options: {
   color: number;
   description: string;
+  failureDetailsId?: string | undefined;
   fields: APIEmbedField[];
   title: string;
 }): MessageCreateOptions {
@@ -2369,8 +2657,28 @@ function createBotLogEmbedMessage(options: {
     allowedMentions: {
       parse: [],
     },
+    ...(options.failureDetailsId
+      ? { components: [createFailureDetailsButtonRow(options.failureDetailsId)] }
+      : {}),
     embeds: [embed],
   };
+}
+
+function createFailureDetailsButtonRow(detailsId: string) {
+  return {
+    components: [
+      {
+        custom_id: createAutomationFailureDetailsCustomId(detailsId),
+        emoji: {
+          name: "🔎",
+        },
+        label: "Failure Details",
+        style: 2,
+        type: 2,
+      },
+    ],
+    type: 1,
+  } as const;
 }
 
 function createRunReminderDescription(
@@ -2476,6 +2784,16 @@ function getResultNumber(result: ActionResult, key: string): number | undefined 
   const value = result[key];
 
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function getLooseNumber(value: unknown, key: string): number {
+  if (!isRecord(value)) {
+    return 0;
+  }
+
+  const fieldValue = value[key];
+
+  return typeof fieldValue === "number" && Number.isFinite(fieldValue) ? fieldValue : 0;
 }
 
 function formatRunReminderSkippedReason(reason: string): string {

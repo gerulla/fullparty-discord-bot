@@ -30,6 +30,14 @@ export type GuildMemberCacheSchedulerEnqueueResult = {
   reason: GuildMemberCacheRefreshReason;
 };
 
+export type GuildMemberCacheSchedulerRefreshAllResult = {
+  deletedUnavailableGuildCount: number;
+  linkedGuildCount: number;
+  obsoleteUnavailableGuildCount: number;
+  queuedGuildCount: number;
+  skippedGuildCount: number;
+};
+
 export type GuildMemberCacheSchedulerHealthSummary = GuildMemberCacheHealthSummary & {
   processing: number;
   queued: number;
@@ -165,7 +173,11 @@ export class GuildMemberCacheScheduler {
   }
 
   public async getHealthSummary(): Promise<GuildMemberCacheSchedulerHealthSummary> {
+    const linkedGuildIds = await this.getLiveLinkedGuildIds();
+    await this.markUnavailableCacheRowsObsolete(linkedGuildIds);
+
     const cacheSummary = await this.store.getHealthSummary({
+      discordGuildIds: linkedGuildIds,
       staleAfterMs: this.refreshIntervalMs,
       unhealthyAfterMs: this.purgeAfterMs,
     });
@@ -178,6 +190,32 @@ export class GuildMemberCacheScheduler {
       queued: this.queue.length,
       running: this.running,
       status,
+    };
+  }
+
+  public async refreshLinkedGuildsFromDashboard(): Promise<GuildMemberCacheSchedulerRefreshAllResult> {
+    const linkedGuildIds = await this.getLiveLinkedGuildIds();
+    const obsoleteUnavailableGuildCount =
+      await this.markUnavailableCacheRowsObsolete(linkedGuildIds);
+    let queuedGuildCount = 0;
+    let skippedGuildCount = 0;
+
+    for (const discordGuildId of linkedGuildIds) {
+      const result = await this.enqueueRefresh(discordGuildId, "dashboard_request");
+
+      if (result.alreadyQueued) {
+        skippedGuildCount += 1;
+      } else {
+        queuedGuildCount += 1;
+      }
+    }
+
+    return {
+      deletedUnavailableGuildCount: obsoleteUnavailableGuildCount,
+      linkedGuildCount: linkedGuildIds.length,
+      obsoleteUnavailableGuildCount,
+      queuedGuildCount,
+      skippedGuildCount,
     };
   }
 
@@ -199,6 +237,7 @@ export class GuildMemberCacheScheduler {
     }
 
     await this.store.purgeExpired(new Date(Date.now() - this.purgeAfterMs));
+    await this.markUnavailableCacheRowsObsolete(await this.getLiveLinkedGuildIds());
 
     for (const guild of this.client.guilds.cache.values()) {
       const reason = await this.getRefreshReason(guild);
@@ -238,6 +277,42 @@ export class GuildMemberCacheScheduler {
     }
 
     return undefined;
+  }
+
+  private async getLiveLinkedGuildIds(): Promise<string[]> {
+    const linkedGuildIds: string[] = [];
+
+    for (const guild of this.client.guilds.cache.values()) {
+      const settings = await this.settingsStore.get(guild.id);
+
+      if (settings.linkedAt) {
+        linkedGuildIds.push(guild.id);
+      }
+    }
+
+    return linkedGuildIds;
+  }
+
+  private async markUnavailableCacheRowsObsolete(
+    linkedGuildIds: string[],
+  ): Promise<number> {
+    const linkedGuildIdSet = new Set(linkedGuildIds);
+    const cachedGuildIds = await this.store.listCachedGuildIds();
+    let obsoleteCount = 0;
+
+    for (const cachedGuildId of cachedGuildIds) {
+      if (linkedGuildIdSet.has(cachedGuildId)) {
+        continue;
+      }
+
+      await this.store.markGuildObsolete(cachedGuildId);
+      obsoleteCount += 1;
+      this.logger.info("Marked stale guild member cache obsolete for unavailable guild.", {
+        discordGuildId: cachedGuildId,
+      });
+    }
+
+    return obsoleteCount;
   }
 
   private kickDrain(): void {

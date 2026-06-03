@@ -125,6 +125,63 @@ describe("GuildMemberCacheScheduler", () => {
     });
   });
 
+  it("marks unavailable guild cache rows obsolete when dashboard refresh is requested", async () => {
+    const store = await createStore();
+    const scheduler = createScheduler({
+      guilds: [
+        createGuild({
+          id: "linked-guild-id",
+          memberCount: 2,
+          memberIds: ["1", "2"],
+        }),
+      ],
+      linkedGuildIds: ["linked-guild-id"],
+      store,
+    });
+
+    await store.replaceGuildMembers("old-guild-id", ["9"], {
+      memberCount: 1,
+      nextRefreshAfter: new Date("2026-05-31T10:00:00.000Z"),
+      refreshedAt: new Date("2026-05-30T10:00:00.000Z"),
+    });
+
+    await expect(scheduler.refreshLinkedGuildsFromDashboard()).resolves.toMatchObject({
+      deletedUnavailableGuildCount: 1,
+      linkedGuildCount: 1,
+      obsoleteUnavailableGuildCount: 1,
+      queuedGuildCount: 1,
+      skippedGuildCount: 0,
+    });
+    await expect(store.listCachedGuildIds()).resolves.toEqual([]);
+  });
+
+  it("scopes member cache health to linked guilds the bot can see", async () => {
+    const store = await createStore();
+    const scheduler = createScheduler({
+      guilds: [
+        createGuild({
+          id: "linked-guild-id",
+          memberCount: 2,
+          memberIds: ["1", "2"],
+        }),
+      ],
+      linkedGuildIds: ["linked-guild-id"],
+      store,
+    });
+
+    await store.replaceGuildMembers("old-guild-id", ["9"], {
+      memberCount: 1,
+      nextRefreshAfter: new Date("2026-05-31T10:00:00.000Z"),
+      refreshedAt: new Date("2026-05-30T10:00:00.000Z"),
+    });
+
+    await expect(scheduler.getHealthSummary()).resolves.toMatchObject({
+      cachedGuildCount: 0,
+      staleGuildCount: 0,
+    });
+    await expect(store.listCachedGuildIds()).resolves.toEqual([]);
+  });
+
   async function createStore(): Promise<SqliteGuildMemberCacheStore> {
     const directory = await mkdtemp(join(tmpdir(), "fullparty-member-scheduler-"));
     const databasePath = join(directory, "member-cache.sqlite");
@@ -181,13 +238,14 @@ function createScheduler(options: {
 
 function createGuild(options: {
   botMemberIds?: string[];
+  id?: string;
   memberCount: number;
   memberIds: string[];
 }): unknown {
   const botMemberIds = new Set(options.botMemberIds ?? []);
 
   return {
-    id: "guild-id",
+    id: options.id ?? "guild-id",
     memberCount: options.memberCount,
     members: {
       fetch: () =>

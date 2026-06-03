@@ -40,6 +40,7 @@ export type GuildMemberCacheStore = {
     discordGuildId: string,
     options?: GuildMemberCacheSnapshotOptions,
   ): Promise<GuildMemberCacheSnapshot>;
+  listCachedGuildIds(): Promise<string[]>;
   markMemberRemoved(
     discordGuildId: string,
     discordUserId: string,
@@ -58,6 +59,7 @@ export type GuildMemberCacheStore = {
     discordGuildId: string,
     options: GuildMemberCacheRefreshStartedOptions,
   ): Promise<void>;
+  markGuildObsolete(discordGuildId: string, obsoleteAt?: Date): Promise<void>;
   purgeExpired(cutoff: Date): Promise<number>;
   replaceGuildMembers(
     discordGuildId: string,
@@ -72,6 +74,7 @@ export type GuildMemberCacheSnapshotOptions = {
 };
 
 export type GuildMemberCacheHealthOptions = {
+  discordGuildIds?: string[] | undefined;
   now?: Date | undefined;
   staleAfterMs: number;
   unhealthyAfterMs: number;
@@ -102,6 +105,7 @@ type GuildMemberCacheStatusRow = {
   last_full_refresh_at: string | null;
   member_count: number | null;
   next_refresh_after: string | null;
+  obsolete_at: string | null;
   refresh_status: GuildMemberCacheRefreshStatus;
   updated_at: string;
 };
@@ -132,18 +136,13 @@ export class SqliteGuildMemberCacheStore implements GuildMemberCacheStore {
   ): Promise<GuildMemberCacheSnapshot> {
     const now = options.now ?? new Date();
     const row = this.getStatusRow(discordGuildId);
-    const userIds = options.includeUserIds
-      ? this.getGuildUserIds(discordGuildId)
-      : undefined;
 
     if (!row) {
-      const cachedMemberCount = this.getCachedMemberCount(discordGuildId);
-
       return Promise.resolve({
         cacheAgeSeconds: null,
-        cachedMemberCount,
+        cachedMemberCount: 0,
         discordGuildId,
-        ...(userIds ? { discordUserIds: userIds } : {}),
+        ...(options.includeUserIds ? { discordUserIds: [] } : {}),
         lastError: null,
         lastFullRefreshAt: null,
         memberCount: null,
@@ -161,6 +160,9 @@ export class SqliteGuildMemberCacheStore implements GuildMemberCacheStore {
     const refreshStatus: GuildMemberCacheSnapshotStatus = stale
       ? "stale"
       : row.refresh_status;
+    const userIds = options.includeUserIds
+      ? this.getGuildUserIds(discordGuildId)
+      : undefined;
 
     return Promise.resolve({
       cacheAgeSeconds: row.last_full_refresh_at
@@ -203,6 +205,7 @@ export class SqliteGuildMemberCacheStore implements GuildMemberCacheStore {
           ON CONFLICT(discord_guild_id) DO UPDATE SET
             last_error = NULL,
             member_count = excluded.member_count,
+            obsolete_at = NULL,
             refresh_status = 'refreshing',
             updated_at = excluded.updated_at
         `,
@@ -215,6 +218,21 @@ export class SqliteGuildMemberCacheStore implements GuildMemberCacheStore {
       );
 
     return Promise.resolve();
+  }
+
+  public listCachedGuildIds(): Promise<string[]> {
+    const rows = this.database
+      .prepare(
+        `
+          SELECT discord_guild_id
+          FROM guild_member_cache_status
+          WHERE obsolete_at IS NULL
+          ORDER BY discord_guild_id ASC
+        `,
+      )
+      .all() as { discord_guild_id: string }[];
+
+    return Promise.resolve(rows.map((row) => row.discord_guild_id));
   }
 
   public replaceGuildMembers(
@@ -272,6 +290,7 @@ export class SqliteGuildMemberCacheStore implements GuildMemberCacheStore {
               last_full_refresh_at = excluded.last_full_refresh_at,
               member_count = excluded.member_count,
               next_refresh_after = excluded.next_refresh_after,
+              obsolete_at = NULL,
               refresh_status = 'fresh',
               updated_at = excluded.updated_at
           `,
@@ -321,6 +340,7 @@ export class SqliteGuildMemberCacheStore implements GuildMemberCacheStore {
             last_error = excluded.last_error,
             member_count = excluded.member_count,
             next_refresh_after = excluded.next_refresh_after,
+            obsolete_at = NULL,
             refresh_status = 'failed',
             updated_at = excluded.updated_at
         `,
@@ -406,6 +426,41 @@ export class SqliteGuildMemberCacheStore implements GuildMemberCacheStore {
     return Promise.resolve();
   }
 
+  public markGuildObsolete(
+    discordGuildId: string,
+    obsoleteAt: Date = new Date(),
+  ): Promise<void> {
+    const obsoleteAtIso = obsoleteAt.toISOString();
+
+    this.database
+      .prepare(
+        `
+          INSERT INTO guild_member_cache_status (
+            cached_member_count,
+            discord_guild_id,
+            member_count,
+            obsolete_at,
+            refresh_status,
+            updated_at
+          ) VALUES (?, ?, ?, ?, 'missing', ?)
+          ON CONFLICT(discord_guild_id) DO UPDATE SET
+            cached_member_count = excluded.cached_member_count,
+            member_count = excluded.member_count,
+            obsolete_at = excluded.obsolete_at,
+            updated_at = excluded.updated_at
+        `,
+      )
+      .run(
+        this.getCachedMemberCount(discordGuildId),
+        discordGuildId,
+        this.getCachedMemberCount(discordGuildId),
+        obsoleteAtIso,
+        obsoleteAtIso,
+      );
+
+    return Promise.resolve();
+  }
+
   public purgeExpired(cutoff: Date): Promise<number> {
     const cutoffIso = cutoff.toISOString();
     const guildRows = this.database
@@ -441,14 +496,17 @@ export class SqliteGuildMemberCacheStore implements GuildMemberCacheStore {
     const unhealthyCutoff = new Date(
       now.getTime() - options.unhealthyAfterMs,
     ).toISOString();
-    const cachedGuildCount = this.getStatusCount();
-    const failedGuildCount = this.getStatusCount("failed");
+    const guildScope = createSqlGuildScope(options.discordGuildIds);
+    const cachedGuildCount = this.getStatusCount(undefined, guildScope);
+    const failedGuildCount = this.getStatusCount("failed", guildScope);
     const staleGuildCount = this.database
       .prepare(
         `
           SELECT COUNT(*) AS count
           FROM guild_member_cache_status
           WHERE refresh_status != 'refreshing'
+            AND obsolete_at IS NULL
+            ${guildScope.whereClause}
             AND (
               last_full_refresh_at IS NULL
               OR last_full_refresh_at < ?
@@ -456,26 +514,30 @@ export class SqliteGuildMemberCacheStore implements GuildMemberCacheStore {
             )
         `,
       )
-      .get(staleCutoff) as CountRow;
+      .get(...guildScope.values, staleCutoff) as CountRow;
     const unhealthyGuildCount = this.database
       .prepare(
         `
           SELECT COUNT(*) AS count
           FROM guild_member_cache_status
           WHERE last_full_refresh_at IS NOT NULL
+            AND obsolete_at IS NULL
+            ${guildScope.whereClause}
             AND last_full_refresh_at < ?
         `,
       )
-      .get(unhealthyCutoff) as CountRow;
+      .get(...guildScope.values, unhealthyCutoff) as CountRow;
     const oldestRefresh = this.database
       .prepare(
         `
           SELECT MIN(last_full_refresh_at) AS last_full_refresh_at
           FROM guild_member_cache_status
           WHERE last_full_refresh_at IS NOT NULL
+            AND obsolete_at IS NULL
+            ${guildScope.whereClause}
         `,
       )
-      .get() as OldestRefreshRow;
+      .get(...guildScope.values) as OldestRefreshRow;
     const oldestCacheAgeSeconds = oldestRefresh.last_full_refresh_at
       ? Math.max(
           0,
@@ -530,9 +592,11 @@ export class SqliteGuildMemberCacheStore implements GuildMemberCacheStore {
         refresh_status TEXT NOT NULL DEFAULT 'missing'
           CHECK (refresh_status IN ('missing', 'refreshing', 'fresh', 'failed')),
         last_error TEXT,
+        obsolete_at TEXT,
         updated_at TEXT NOT NULL
       )
     `);
+    this.addColumnIfMissing("guild_member_cache_status", "obsolete_at", "TEXT");
   }
 
   private getStatusRow(discordGuildId: string): GuildMemberCacheStatusRow | undefined {
@@ -546,10 +610,12 @@ export class SqliteGuildMemberCacheStore implements GuildMemberCacheStore {
             last_full_refresh_at,
             member_count,
             next_refresh_after,
+            obsolete_at,
             refresh_status,
             updated_at
           FROM guild_member_cache_status
           WHERE discord_guild_id = ?
+            AND obsolete_at IS NULL
         `,
       )
       .get(discordGuildId) as GuildMemberCacheStatusRow | undefined;
@@ -584,16 +650,22 @@ export class SqliteGuildMemberCacheStore implements GuildMemberCacheStore {
     return row.count;
   }
 
-  private getStatusCount(status?: GuildMemberCacheRefreshStatus): number {
+  private getStatusCount(
+    status?: GuildMemberCacheRefreshStatus,
+    guildScope: SqlGuildScope = createSqlGuildScope(),
+  ): number {
     if (!status) {
       const row = this.database
         .prepare(
           `
             SELECT COUNT(*) AS count
             FROM guild_member_cache_status
+            WHERE 1 = 1
+              AND obsolete_at IS NULL
+              ${guildScope.whereClause}
           `,
         )
-        .get() as CountRow;
+        .get(...guildScope.values) as CountRow;
 
       return row.count;
     }
@@ -604,9 +676,11 @@ export class SqliteGuildMemberCacheStore implements GuildMemberCacheStore {
           SELECT COUNT(*) AS count
           FROM guild_member_cache_status
           WHERE refresh_status = ?
+            AND obsolete_at IS NULL
+            ${guildScope.whereClause}
         `,
       )
-      .get(status) as CountRow;
+      .get(status, ...guildScope.values) as CountRow;
 
     return row.count;
   }
@@ -622,17 +696,59 @@ export class SqliteGuildMemberCacheStore implements GuildMemberCacheStore {
             cached_member_count,
             discord_guild_id,
             member_count,
+            obsolete_at,
             refresh_status,
             updated_at
-          ) VALUES (?, ?, ?, 'missing', ?)
+          ) VALUES (?, ?, ?, NULL, 'missing', ?)
           ON CONFLICT(discord_guild_id) DO UPDATE SET
             cached_member_count = excluded.cached_member_count,
             member_count = excluded.member_count,
+            obsolete_at = NULL,
             updated_at = excluded.updated_at
         `,
       )
       .run(cachedMemberCount, discordGuildId, cachedMemberCount, updatedAtIso);
   }
+
+  private addColumnIfMissing(tableName: string, columnName: string, definition: string): void {
+    const columns = this.database
+      .prepare(`PRAGMA table_info(${tableName})`)
+      .all() as { name: string }[];
+
+    if (columns.some((column) => column.name === columnName)) {
+      return;
+    }
+
+    this.database.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+  }
+}
+
+type SqlGuildScope = {
+  values: string[];
+  whereClause: string;
+};
+
+function createSqlGuildScope(discordGuildIds?: string[]): SqlGuildScope {
+  if (!discordGuildIds) {
+    return {
+      values: [],
+      whereClause: "",
+    };
+  }
+
+  const uniqueGuildIds = [...new Set(discordGuildIds)];
+
+  if (uniqueGuildIds.length === 0) {
+    return {
+      values: [],
+      whereClause: "AND 1 = 0",
+    };
+  }
+
+  return {
+    values: uniqueGuildIds,
+    whereClause: `AND discord_guild_id IN (${uniqueGuildIds.map(() => "?").join(", ")})`,
+  };
 }
 
 function getHealthStatus(input: {

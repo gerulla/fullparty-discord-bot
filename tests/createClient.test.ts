@@ -57,7 +57,7 @@ describe("createBotClient", () => {
     expect(context.memberCacheCalls).toEqual([
       ["seen", "guild-id", "user-id"],
       ["removed", "guild-id", "user-id"],
-      ["deleteGuild", "guild-id"],
+      ["obsolete", "guild-id"],
     ]);
     expect(context.schedulerCalls).toEqual([["refresh", "guild-id", "guild_joined"]]);
 
@@ -168,6 +168,11 @@ function createContext(): TestContext {
     guildMemberCache: {
       deleteGuild: (guildId: string) => {
         memberCacheCalls.push(["deleteGuild", guildId]);
+
+        return Promise.resolve();
+      },
+      markGuildObsolete: (guildId: string) => {
+        memberCacheCalls.push(["obsolete", guildId]);
 
         return Promise.resolve();
       },

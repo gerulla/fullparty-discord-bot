@@ -5,6 +5,10 @@ import type { BotContext } from "../src/bot/context.js";
 import { createInteractionHandler } from "../src/interactions/handleInteraction.js";
 import type { ChatInputCommand } from "../src/commands/types.js";
 import { FullpartyApiClient, FullpartyApiError } from "../src/fullparty/client.js";
+import {
+  createAutomationFailureDetailsCustomId,
+  storeAutomationFailureDetails,
+} from "../src/guildAutomation/automationFailureDetails.js";
 import { LatestPayloadStore } from "../src/payloads/latestPayloadStore.js";
 
 describe("createInteractionHandler", () => {
@@ -229,6 +233,46 @@ describe("createInteractionHandler", () => {
     await handler(createComponentInteraction({ customId: "setup:bot_log_channel" }));
 
     expect(executed).toBe(true);
+  });
+
+  it("replies privately with automation failure details", async () => {
+    const context = createContext();
+    const reply = createAsyncRecorder();
+    const detailsId = storeAutomationFailureDetails({
+      context: "Run #123 - Cloud of Darkness",
+      sections: [
+        {
+          details: [
+            {
+              reason: "Unknown Member",
+              subject: "123",
+            },
+          ],
+          title: "Role Assignment Failures",
+        },
+      ],
+      title: "Role Assignment Failure Details",
+    });
+    const handler = createInteractionHandler(context, []);
+
+    await handler(
+      createComponentInteraction({
+        customId: createAutomationFailureDetailsCustomId(detailsId ?? "missing"),
+        reply: reply.fn,
+      }),
+    );
+
+    expect(reply.calls).toEqual([
+      [
+        {
+          allowedMentions: {
+            parse: [],
+          },
+          content: expect.stringContaining("`123` - Unknown Member") as string,
+          flags: MessageFlags.Ephemeral,
+        },
+      ],
+    ]);
   });
 
   it("replies to unknown component interactions", async () => {
