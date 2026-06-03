@@ -272,8 +272,8 @@ function createAssignmentResultMessage(
   if (skippedReason) {
     return [
       options.debugBypassWindow
-      ? `🧪 Debug role assignment checked for Run #${String(runId)}, but nothing was assigned.`
-      : `⚠️ Role assignment checked for Run #${String(runId)}, but nothing was assigned.`,
+        ? `🧪 Debug role assignment checked for Run #${String(runId)}, but nothing was assigned.`
+        : `⚠️ Role assignment checked for Run #${String(runId)}, but nothing was assigned.`,
       roleLine,
       `Reason: ${humanizeSkippedReason(skippedReason)}`,
       "Check the bot-log channel for the full status embed.",

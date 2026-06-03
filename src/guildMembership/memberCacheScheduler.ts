@@ -307,9 +307,12 @@ export class GuildMemberCacheScheduler {
 
       await this.store.markGuildObsolete(cachedGuildId);
       obsoleteCount += 1;
-      this.logger.info("Marked stale guild member cache obsolete for unavailable guild.", {
-        discordGuildId: cachedGuildId,
-      });
+      this.logger.info(
+        "Marked stale guild member cache obsolete for unavailable guild.",
+        {
+          discordGuildId: cachedGuildId,
+        },
+      );
     }
 
     return obsoleteCount;

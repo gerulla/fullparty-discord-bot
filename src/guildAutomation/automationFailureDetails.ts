@@ -1,4 +1,8 @@
-import { MessageFlags, type ButtonInteraction, type InteractionReplyOptions } from "discord.js";
+import {
+  MessageFlags,
+  type ButtonInteraction,
+  type InteractionReplyOptions,
+} from "discord.js";
 
 export const automationFailureDetailsCustomIdPrefix = "automationfailures";
 

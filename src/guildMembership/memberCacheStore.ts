@@ -710,10 +710,14 @@ export class SqliteGuildMemberCacheStore implements GuildMemberCacheStore {
       .run(cachedMemberCount, discordGuildId, cachedMemberCount, updatedAtIso);
   }
 
-  private addColumnIfMissing(tableName: string, columnName: string, definition: string): void {
-    const columns = this.database
-      .prepare(`PRAGMA table_info(${tableName})`)
-      .all() as { name: string }[];
+  private addColumnIfMissing(
+    tableName: string,
+    columnName: string,
+    definition: string,
+  ): void {
+    const columns = this.database.prepare(`PRAGMA table_info(${tableName})`).all() as {
+      name: string;
+    }[];
 
     if (columns.some((column) => column.name === columnName)) {
       return;

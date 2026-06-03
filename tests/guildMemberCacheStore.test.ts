@@ -124,10 +124,7 @@ describe("SqliteGuildMemberCacheStore", () => {
       nextRefreshAfter: new Date("2026-05-31T10:00:00.000Z"),
       refreshedAt: new Date("2026-05-30T10:00:00.000Z"),
     });
-    await store.markGuildObsolete(
-      "guild-id",
-      new Date("2026-05-30T11:00:00.000Z"),
-    );
+    await store.markGuildObsolete("guild-id", new Date("2026-05-30T11:00:00.000Z"));
 
     await expect(store.listCachedGuildIds()).resolves.toEqual([]);
     await expect(

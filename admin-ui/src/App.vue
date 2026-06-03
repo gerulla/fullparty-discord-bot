@@ -1324,7 +1324,10 @@ function capitalize(value: string): string {
               <div class="panel-heading compact-heading">
                 <div>
                   <h2>Member Cache</h2>
-                  <p>Refresh linked visible guilds and mark unavailable cache rows obsolete.</p>
+                  <p>
+                    Refresh linked visible guilds and mark unavailable cache rows
+                    obsolete.
+                  </p>
                 </div>
                 <button
                   class="inline-button"

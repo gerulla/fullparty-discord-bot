@@ -2220,10 +2220,10 @@ function buildRunReminderRoleSyncLogMessage(
       value: dryRun
         ? "Not created (dry run)"
         : skippedReason
-        ? "Not created"
-        : createdRunRole
-          ? "Created for this run"
-          : "Reused for this run",
+          ? "Not created"
+          : createdRunRole
+            ? "Created for this run"
+            : "Reused for this run",
     },
   ];
 

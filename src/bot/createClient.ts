@@ -55,10 +55,13 @@ export function createBotClient(context: BotContext): Client {
   });
   client.on(Events.GuildDelete, (guild) => {
     void context.guildMemberCache?.markGuildObsolete(guild.id).catch((error: unknown) => {
-      context.logger.warn("Unable to mark guild member cache obsolete after guild removal.", {
-        discordGuildId: guild.id,
-        error,
-      });
+      context.logger.warn(
+        "Unable to mark guild member cache obsolete after guild removal.",
+        {
+          discordGuildId: guild.id,
+          error,
+        },
+      );
     });
   });
 
