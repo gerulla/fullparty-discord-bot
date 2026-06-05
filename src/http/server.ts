@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { AddressInfo } from "node:net";
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-import { PermissionFlagsBits } from "discord.js";
+import { PermissionFlagsBits, PermissionsBitField } from "discord.js";
 import type { APIEmbed, APIEmbedField, Client, MessageCreateOptions } from "discord.js";
 import { z } from "zod";
 
@@ -201,7 +201,7 @@ type GuildPermissionOverwriteChannel = {
     };
     edit?(
       roleId: string,
-      options: { allow: string; deny: string },
+      options: Record<string, boolean>,
       reason?: string,
     ): Promise<unknown>;
   };
@@ -1895,10 +1895,7 @@ async function copyTemplatePermissionOverwrites(
     try {
       await channel.permissionOverwrites.edit(
         runRoleId,
-        {
-          allow: formatPermissionValue(templateOverwrite.allow),
-          deny: formatPermissionValue(templateOverwrite.deny),
-        },
+        createPermissionOverwriteOptions(templateOverwrite),
         `FullParty copied template role overwrites for run ${String(runId)}.`,
       );
       copiedOverwriteCount += 1;
@@ -1994,6 +1991,60 @@ function formatPermissionValue(value: PermissionOverwriteValue | undefined): str
   }
 
   return "0";
+}
+
+function createPermissionOverwriteOptions(
+  overwrite: GuildPermissionOverwrite,
+): Record<string, boolean> {
+  const options: Record<string, boolean> = {};
+
+  for (const permission of getPermissionNames(overwrite.allow)) {
+    options[permission] = true;
+  }
+
+  for (const permission of getPermissionNames(overwrite.deny)) {
+    options[permission] = false;
+  }
+
+  return options;
+}
+
+function getPermissionNames(
+  value: PermissionOverwriteValue | undefined,
+): ReturnType<PermissionsBitField["toArray"]> {
+  const bitfield = getPermissionBitfield(value);
+
+  if (bitfield === 0n) {
+    return [];
+  }
+
+  return new PermissionsBitField(bitfield).toArray();
+}
+
+function getPermissionBitfield(value: PermissionOverwriteValue | undefined): bigint {
+  const bitfield = value?.bitfield;
+
+  if (typeof bitfield === "bigint") {
+    return bitfield;
+  }
+
+  if (typeof bitfield === "number") {
+    return BigInt(bitfield);
+  }
+
+  if (typeof bitfield === "string" && /^\d+$/u.test(bitfield)) {
+    return BigInt(bitfield);
+  }
+
+  if (typeof value?.toString === "function") {
+    const stringValue = value.toString();
+
+    if (/^\d+$/u.test(stringValue)) {
+      return BigInt(stringValue);
+    }
+  }
+
+  return 0n;
 }
 
 function isGuildRunRole(value: unknown): value is GuildRunRole {

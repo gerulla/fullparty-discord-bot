@@ -1134,7 +1134,7 @@ describe("Fullparty webhook server", () => {
                                   roleId === "upcoming-raider-role-id"
                                     ? {
                                         allow: { bitfield: 1024n },
-                                        deny: { bitfield: 0n },
+                                        deny: { bitfield: 2048n },
                                         id: roleId,
                                       }
                                     : undefined,
@@ -1275,8 +1275,8 @@ describe("Fullparty webhook server", () => {
     expect(channelOverwriteEdits).toEqual([
       {
         options: {
-          allow: "1024",
-          deny: "0",
+          SendMessages: false,
+          ViewChannel: true,
         },
         reason: "FullParty copied template role overwrites for run 123.",
         roleId: "run-role-id",
