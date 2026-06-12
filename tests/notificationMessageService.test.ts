@@ -71,7 +71,7 @@ describe("NotificationMessageService", () => {
       actionUrl: "http://fullparty.test/en/account/applications",
       color: 0x22c55e,
       description:
-        "Your application was submitted for AAC Cruiserweight M1 (Savage) in asd.\n\nCharacter: Giki Chomusuke\nStatus: Pending\n\nView applications: http://fullparty.test/en/account/applications",
+        "Your application was submitted for AAC Cruiserweight M1 (Savage) in asd.\n\nScheduled start: <t:1780351200:F> (<t:1780351200:R>)\nCharacter: Giki Chomusuke\nStatus: Pending\n\nView applications: http://fullparty.test/en/account/applications",
       params: {
         activity: "AAC Cruiserweight M1 (Savage)",
         character: "Giki Chomusuke",
@@ -86,6 +86,7 @@ describe("NotificationMessageService", () => {
         group_id: 21,
         group_slug: "asdd",
         review_reason: null,
+        starts_at: "2026-06-01T22:00:00+00:00",
         status: "pending",
       },
       title: "Application submitted",
@@ -272,6 +273,7 @@ describe("NotificationMessageService", () => {
             slot_id: 72719,
             slot_key: "party-a-slot-7",
             slot_label: "Party A 7",
+            starts_at: "2026-05-30T01:00:00+00:00",
             status: "approved",
           },
           type: "assignments.assigned",
@@ -282,7 +284,7 @@ describe("NotificationMessageService", () => {
         actionUrl: "http://fullparty.test/en/account/applications",
         color: 0x22c55e,
         description:
-          "You were assigned for Activity #6921 in asd to the roster.\n\nCharacter: Giki Chomusuke\nSlot: Party A",
+          "You were assigned for Activity #6921 in asd to the roster.\n\nScheduled start: <t:1780102800:F> (<t:1780102800:R>)\nCharacter: Giki Chomusuke\nSlot: Party A",
         footerText: "🎯 FullParty • Assignments",
         title: "Roster assignment updated",
       },
@@ -318,6 +320,7 @@ describe("NotificationMessageService", () => {
             slot_id: 72714,
             slot_key: "party-a-slot-2",
             slot_label: "Party A 2",
+            starts_at: "2026-05-30T01:00:00+00:00",
             status: "approved",
           },
           type: "assignments.roster_published_assigned",
@@ -328,7 +331,7 @@ describe("NotificationMessageService", () => {
         actionUrl: "http://fullparty.test/en/account/applications",
         color: 0x22c55e,
         description:
-          "Your roster assignment for Activity #6921 in asd was published.\n\nCharacter: Giki Chomusuke\nSlot: Party A",
+          "Your roster assignment for Activity #6921 in asd was published.\n\nScheduled start: <t:1780102800:F> (<t:1780102800:R>)\nCharacter: Giki Chomusuke\nSlot: Party A",
         footerText: "🎯 FullParty • Assignments",
         title: "Roster published",
       },

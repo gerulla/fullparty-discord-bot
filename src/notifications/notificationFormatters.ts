@@ -64,7 +64,12 @@ const formatterByType: Record<string, NotificationCopyFormatter> = {
     }
 
     const summary = buildAssignmentSummary("You were assigned", details, "to the roster");
-    const fields = buildAssignmentFields(details, ["character", "extraFields", "slot"]);
+    const fields = buildAssignmentFields(details, [
+      "startsAt",
+      "character",
+      "extraFields",
+      "slot",
+    ]);
 
     return {
       ...copy,
@@ -153,7 +158,12 @@ const formatterByType: Record<string, NotificationCopyFormatter> = {
       details,
       "was published",
     );
-    const fields = buildAssignmentFields(details, ["character", "extraFields", "slot"]);
+    const fields = buildAssignmentFields(details, [
+      "startsAt",
+      "character",
+      "extraFields",
+      "slot",
+    ]);
 
     return {
       ...copy,
@@ -168,7 +178,11 @@ const formatterByType: Record<string, NotificationCopyFormatter> = {
       details,
       "was published",
     );
-    const fields = buildAssignmentFields(details, ["character", "extraFields"]);
+    const fields = buildAssignmentFields(details, [
+      "startsAt",
+      "character",
+      "extraFields",
+    ]);
 
     return {
       ...copy,
@@ -338,6 +352,7 @@ type AssignmentDetails = {
   extraFields: AssignmentDetailField[];
   group?: string;
   slot?: string;
+  startsAt?: string;
 };
 
 type AssignmentDetailField = {
@@ -351,6 +366,7 @@ type ApplicationDetails = {
   count?: number;
   group?: string;
   reason?: string;
+  startsAt?: string;
   status?: string;
 };
 
@@ -401,7 +417,7 @@ function formatApplicationNotification(
     ...copy,
     description: joinDescriptionParts(
       buildApplicationSummary(subject, details),
-      buildApplicationFields(details, fields),
+      buildApplicationFields(details, addStartsAtField(details, fields)),
     ),
     title,
   };
@@ -423,6 +439,7 @@ function getApplicationDetails(data: NotificationDeliveryData): ApplicationDetai
     getDisplayStringValue(data.notification.params.reason) ??
     getPayloadDisplayStringValue(data.notification.payload, "review_reason");
   const status = getPayloadStringValue(data.notification.payload, "status");
+  const startsAt = getNotificationStartsAt(data);
 
   if (activity) {
     details.activity = activity;
@@ -448,6 +465,10 @@ function getApplicationDetails(data: NotificationDeliveryData): ApplicationDetai
     details.status = status;
   }
 
+  if (startsAt) {
+    details.startsAt = startsAt;
+  }
+
   return details;
 }
 
@@ -458,6 +479,7 @@ function hasApplicationDetails(details: ApplicationDetails): boolean {
     (details.count !== undefined ? "count" : undefined) ??
     details.group ??
     details.reason ??
+    details.startsAt ??
     details.status,
   );
 }
@@ -486,12 +508,22 @@ function buildApplicationFields(
   return lines.length > 0 ? lines.join("\n") : undefined;
 }
 
-type ApplicationFieldKey = "character" | "count" | "reason" | "status";
+function addStartsAtField(
+  details: ApplicationDetails,
+  fields: ApplicationFieldKey[],
+): ApplicationFieldKey[] {
+  return details.startsAt && !fields.includes("startsAt")
+    ? ["startsAt", ...fields]
+    : fields;
+}
+
+type ApplicationFieldKey = "character" | "count" | "reason" | "startsAt" | "status";
 
 const applicationFieldLabels: Record<ApplicationFieldKey, string> = {
   character: "Character",
   count: "Applications waiting",
   reason: "Reason",
+  startsAt: "Scheduled start",
   status: "Status",
 };
 
@@ -512,6 +544,7 @@ function getAssignmentDetails(data: NotificationDeliveryData): AssignmentDetails
   const attendanceStatus =
     getStringValue(data.notification.params.attendance_status) ??
     getPayloadStringValue(data.notification.payload, "attendance_status");
+  const startsAt = getNotificationStartsAt(data);
 
   if (activity) {
     details.activity = activity;
@@ -533,6 +566,10 @@ function getAssignmentDetails(data: NotificationDeliveryData): AssignmentDetails
     details.slot = slot;
   }
 
+  if (startsAt) {
+    details.startsAt = startsAt;
+  }
+
   return details;
 }
 
@@ -543,7 +580,8 @@ function hasAssignmentDetails(details: AssignmentDetails): boolean {
     details.character ??
     (details.extraFields.length > 0 ? "extra_fields" : undefined) ??
     details.group ??
-    details.slot,
+    details.slot ??
+    details.startsAt,
   );
 }
 
@@ -600,7 +638,12 @@ function buildAssignmentFields(
   return lines.length > 0 ? lines.join("\n") : undefined;
 }
 
-type AssignmentFieldKey = "attendanceStatus" | "character" | "extraFields" | "slot";
+type AssignmentFieldKey =
+  | "attendanceStatus"
+  | "character"
+  | "extraFields"
+  | "slot"
+  | "startsAt";
 
 const assignmentFieldLabels: Record<
   Exclude<AssignmentFieldKey, "extraFields">,
@@ -609,6 +652,7 @@ const assignmentFieldLabels: Record<
   attendanceStatus: "Attendance",
   character: "Character",
   slot: "Slot",
+  startsAt: "Scheduled start",
 };
 
 function joinDescriptionParts(summary: string, details: string | undefined): string {
@@ -651,9 +695,7 @@ function getRunDetails(data: NotificationDeliveryData): RunDetails {
   const group =
     getDisplayStringValue(data.notification.params.group) ??
     getPayloadDisplayStringValue(data.notification.payload, "group_slug");
-  const startsAt = formatDiscordDateTime(
-    getPayloadRawStringValue(data.notification.payload, "starts_at"),
-  );
+  const startsAt = getNotificationStartsAt(data);
   const status = getPayloadStringValue(data.notification.payload, "status");
   const completion = getRunCompletionDetails(data.notification.payload);
 
@@ -888,6 +930,13 @@ function getPayloadDisplayStringValue(payload: unknown, key: string): string | u
   }
 
   return getDisplayStringValue((payload as Record<string, unknown>)[key]);
+}
+
+function getNotificationStartsAt(data: NotificationDeliveryData): string | undefined {
+  return formatDiscordDateTime(
+    getPayloadRawStringValue(data.notification.payload, "starts_at") ??
+      getPayloadRawStringValue(data.notification.payload, "start_at"),
+  );
 }
 
 function getRoster(data: NotificationDeliveryData): Record<string, unknown> | undefined {
