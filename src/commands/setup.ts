@@ -86,6 +86,9 @@ function buildSetupPanel(
       "4. Bot moderator role: " + formatRole(settings.botModeratorRoleId),
       "5. Sync Discord names to FF14 character names: " +
         formatEnabled(settings.syncDiscordNamesToFf14),
+      "",
+      "**Template Role Overrides:**",
+      formatTemplateRoleOverrides(settings),
       preflightWarning ? `\n${preflightWarning}` : undefined,
       "",
       "Use the controls below from top to bottom. Changes save immediately.",
@@ -319,6 +322,21 @@ function formatChannel(channelId: string | undefined): string {
 
 function formatRole(roleId: string | undefined): string {
   return roleId ? `<@&${roleId}>` : "_Not set_";
+}
+
+function formatTemplateRoleOverrides(settings: GuildSettings): string {
+  const overrides = settings.runRoleTemplateOverrides ?? [];
+
+  if (overrides.length === 0) {
+    return "_None configured_";
+  }
+
+  return overrides
+    .map(
+      (override) =>
+        `${formatRole(override.roleId)} - ${override.activityName} (${String(override.activityId)})`,
+    )
+    .join("\n");
 }
 
 function formatEnabled(value: boolean): string {

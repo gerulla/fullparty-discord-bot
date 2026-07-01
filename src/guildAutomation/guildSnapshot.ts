@@ -33,6 +33,8 @@ export type DiscordGuildSnapshotAvailableOptions = {
 };
 
 export type DiscordGuildSnapshotRoleOption = {
+  color: number;
+  colors: DiscordGuildSnapshotRoleColors;
   disabled_reason: string | null;
   id: string;
   label: string;
@@ -56,6 +58,7 @@ export type DiscordGuildSnapshotRole = {
   can_assign_by_bot: boolean;
   can_delete_by_bot: boolean;
   color: number;
+  colors: DiscordGuildSnapshotRoleColors;
   editable_by_bot: boolean;
   hoist: boolean;
   id: string;
@@ -66,6 +69,15 @@ export type DiscordGuildSnapshotRole = {
   permissions: string;
   position: number;
   usable_as_run_template: boolean;
+};
+
+export type DiscordGuildSnapshotRoleColors = {
+  primary_color: number;
+  primary_hex: string;
+  secondary_color: number | null;
+  secondary_hex: string | null;
+  tertiary_color: number | null;
+  tertiary_hex: string | null;
 };
 
 export type DiscordGuildSnapshotChannel = {
@@ -84,10 +96,19 @@ export type DiscordGuildSnapshotSettings = {
   bot_log_channel_id: string | null;
   bot_moderator_role_id: string | null;
   linked_at: string | null;
+  run_role_template_overrides: DiscordGuildSnapshotRunRoleTemplateOverride[];
   run_announcement_channel_id: string | null;
   run_role_template_id: string | null;
   sync_discord_names_to_ff14: boolean;
   upcoming_raider_role_id: string | null;
+};
+
+export type DiscordGuildSnapshotRunRoleTemplateOverride = {
+  activity_id: number;
+  activity_name: string;
+  created_at: string | null;
+  role_id: string;
+  updated_at: string | null;
 };
 
 export async function createDiscordGuildSnapshot(
@@ -126,6 +147,15 @@ export function serializeGuildSettings(
     bot_log_channel_id: settings.botLogChannelId ?? null,
     bot_moderator_role_id: settings.botModeratorRoleId ?? null,
     linked_at: settings.linkedAt ?? null,
+    run_role_template_overrides: (settings.runRoleTemplateOverrides ?? []).map(
+      (override) => ({
+        activity_id: override.activityId,
+        activity_name: override.activityName,
+        created_at: override.createdAt ?? null,
+        role_id: override.roleId,
+        updated_at: override.updatedAt ?? null,
+      }),
+    ),
     run_announcement_channel_id: settings.runAnnouncementChannelId ?? null,
     run_role_template_id: settings.upcomingRaiderRoleId ?? null,
     sync_discord_names_to_ff14: settings.syncDiscordNamesToFf14,
@@ -137,11 +167,13 @@ function createRoleSnapshot(guild: Guild, role: Role): DiscordGuildSnapshotRole 
   const isEveryone = role.id === guild.id;
   const editableByBot = !isEveryone && role.editable;
   const canManage = editableByBot && !role.managed;
+  const colors = createRoleColorSnapshot(role);
 
   return {
     can_assign_by_bot: canManage,
     can_delete_by_bot: canManage,
-    color: role.colors.primaryColor,
+    color: colors.primary_color,
+    colors,
     editable_by_bot: editableByBot,
     hoist: role.hoist,
     id: role.id,
@@ -212,6 +244,8 @@ function createRoleOption(
   disabledReason: string | null = null,
 ): DiscordGuildSnapshotRoleOption {
   return {
+    color: role.color,
+    colors: role.colors,
     disabled_reason: disabledReason,
     id: role.id,
     label: role.name,
@@ -219,6 +253,31 @@ function createRoleOption(
     position: role.position,
     usable: disabledReason === null,
   };
+}
+
+function createRoleColorSnapshot(role: Role): DiscordGuildSnapshotRoleColors {
+  const primaryColor = normalizeRolePrimaryColor(role.colors.primaryColor);
+
+  return {
+    primary_color: primaryColor,
+    primary_hex: formatHexColor(primaryColor),
+    secondary_color: role.colors.secondaryColor,
+    secondary_hex: formatNullableHexColor(role.colors.secondaryColor),
+    tertiary_color: role.colors.tertiaryColor,
+    tertiary_hex: formatNullableHexColor(role.colors.tertiaryColor),
+  };
+}
+
+function normalizeRolePrimaryColor(color: number): number {
+  return color === 0 ? 0xffffff : color;
+}
+
+function formatNullableHexColor(color: number | null | undefined): string | null {
+  return color === null || color === undefined ? null : formatHexColor(color);
+}
+
+function formatHexColor(color: number): string {
+  return `#${color.toString(16).padStart(6, "0").toUpperCase()}`;
 }
 
 function createChannelOption(

@@ -29,6 +29,15 @@ describe("createDiscordGuildSnapshot", () => {
         ],
         bot_moderator_roles: [
           expect.objectContaining({
+            color: 0x22c55e,
+            colors: {
+              primary_color: 0x22c55e,
+              primary_hex: "#22C55E",
+              secondary_color: 0x0ea5e9,
+              secondary_hex: "#0EA5E9",
+              tertiary_color: 0xa855f7,
+              tertiary_hex: "#A855F7",
+            },
             id: "template-role-id",
             label: "Upcoming Raider Template",
             usable: true,
@@ -37,6 +46,11 @@ describe("createDiscordGuildSnapshot", () => {
             disabled_reason: "Role is managed by Discord or another integration.",
             id: "managed-role-id",
             usable: false,
+          }),
+          expect.objectContaining({
+            color: 0xffffff,
+            id: "plain-role-id",
+            usable: true,
           }),
         ],
         run_announcement_channels: [
@@ -58,6 +72,11 @@ describe("createDiscordGuildSnapshot", () => {
             id: "managed-role-id",
             usable: false,
           }),
+          expect.objectContaining({
+            color: 0xffffff,
+            id: "plain-role-id",
+            usable: true,
+          }),
         ],
       },
       bot_permissions: PermissionFlagsBits.ManageRoles.toString(),
@@ -71,6 +90,7 @@ describe("createDiscordGuildSnapshot", () => {
         bot_moderator_role_id: "bot-moderator-role-id",
         linked_at: "2026-06-01T10:00:00.000Z",
         run_announcement_channel_id: "run-announcement-channel-id",
+        run_role_template_overrides: [],
         run_role_template_id: "template-role-id",
         sync_discord_names_to_ff14: true,
         upcoming_raider_role_id: "template-role-id",
@@ -78,6 +98,15 @@ describe("createDiscordGuildSnapshot", () => {
     });
     expect(snapshot.roles).toEqual([
       expect.objectContaining({
+        color: 0x22c55e,
+        colors: {
+          primary_color: 0x22c55e,
+          primary_hex: "#22C55E",
+          secondary_color: 0x0ea5e9,
+          secondary_hex: "#0EA5E9",
+          tertiary_color: 0xa855f7,
+          tertiary_hex: "#A855F7",
+        },
         editable_by_bot: true,
         id: "template-role-id",
         name: "Upcoming Raider Template",
@@ -87,6 +116,19 @@ describe("createDiscordGuildSnapshot", () => {
         id: "managed-role-id",
         managed: true,
         usable_as_run_template: false,
+      }),
+      expect.objectContaining({
+        color: 0xffffff,
+        colors: {
+          primary_color: 0xffffff,
+          primary_hex: "#FFFFFF",
+          secondary_color: null,
+          secondary_hex: null,
+          tertiary_color: null,
+          tertiary_hex: null,
+        },
+        id: "plain-role-id",
+        name: "Plain Role",
       }),
     ]);
     expect(snapshot.channels).toEqual([
@@ -175,6 +217,8 @@ function createSnapshotClient() {
                       color: 0x22c55e,
                       colors: {
                         primaryColor: 0x22c55e,
+                        secondaryColor: 0x0ea5e9,
+                        tertiaryColor: 0xa855f7,
                       },
                       editable: true,
                       hoist: false,
@@ -186,6 +230,26 @@ function createSnapshotClient() {
                         bitfield: 0n,
                       },
                       position: 4,
+                    },
+                  ],
+                  [
+                    "plain-role-id",
+                    {
+                      colors: {
+                        primaryColor: 0,
+                        secondaryColor: null,
+                        tertiaryColor: null,
+                      },
+                      editable: true,
+                      hoist: false,
+                      id: "plain-role-id",
+                      managed: false,
+                      mentionable: false,
+                      name: "Plain Role",
+                      permissions: {
+                        bitfield: 0n,
+                      },
+                      position: 2,
                     },
                   ],
                   [

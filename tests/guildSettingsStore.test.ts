@@ -42,6 +42,13 @@ describe("SqliteGuildSettingsStore", () => {
         botModeratorRoleId: "bot-moderator-role-id",
         linkedAt: "2026-06-01T10:00:00.000Z",
         runAnnouncementChannelId: "run-announcement-channel-id",
+        runRoleTemplateOverrides: [
+          {
+            activityId: 321,
+            activityName: "Abyssos Savage",
+            roleId: "abyssos-role-id",
+          },
+        ],
         syncDiscordNamesToFf14: true,
         upcomingRaiderRoleId: "upcoming-raider-role-id",
       }),
@@ -51,6 +58,13 @@ describe("SqliteGuildSettingsStore", () => {
       guildId: "guild-id",
       linkedAt: "2026-06-01T10:00:00.000Z",
       runAnnouncementChannelId: "run-announcement-channel-id",
+      runRoleTemplateOverrides: [
+        expect.objectContaining({
+          activityId: 321,
+          activityName: "Abyssos Savage",
+          roleId: "abyssos-role-id",
+        }),
+      ],
       syncDiscordNamesToFf14: true,
       upcomingRaiderRoleId: "upcoming-raider-role-id",
     });
@@ -75,6 +89,19 @@ describe("SqliteGuildSettingsStore", () => {
         `,
       )
       .get("guild-id");
+    const overrides = database
+      .prepare(
+        `
+          SELECT
+            activity_id,
+            activity_name,
+            created_at,
+            role_id
+          FROM guild_role_template_overrides
+          WHERE guild_id = ?
+        `,
+      )
+      .all("guild-id");
 
     database.close();
 
@@ -87,6 +114,14 @@ describe("SqliteGuildSettingsStore", () => {
       sync_discord_names_to_ff14: 1,
       upcoming_raider_role_id: "upcoming-raider-role-id",
     });
+    expect(overrides).toEqual([
+      {
+        activity_id: 321,
+        activity_name: "Abyssos Savage",
+        created_at: expect.any(String) as string,
+        role_id: "abyssos-role-id",
+      },
+    ]);
   });
 
   it("reads persisted settings after reopening the database", async () => {
@@ -95,6 +130,13 @@ describe("SqliteGuildSettingsStore", () => {
     await store.update("guild-id", {
       botLogChannelId: "bot-log-channel-id",
       linkedAt: "2026-06-01T10:00:00.000Z",
+      runRoleTemplateOverrides: [
+        {
+          activityId: 321,
+          activityName: "Abyssos Savage",
+          roleId: "abyssos-role-id",
+        },
+      ],
       syncDiscordNamesToFf14: true,
     });
     store.close();
@@ -107,8 +149,41 @@ describe("SqliteGuildSettingsStore", () => {
       botLogChannelId: "bot-log-channel-id",
       guildId: "guild-id",
       linkedAt: "2026-06-01T10:00:00.000Z",
+      runRoleTemplateOverrides: [
+        expect.objectContaining({
+          activityId: 321,
+          activityName: "Abyssos Savage",
+          roleId: "abyssos-role-id",
+        }),
+      ],
       syncDiscordNamesToFf14: true,
     });
+  });
+
+  it("clears role template overrides when given an empty override list", async () => {
+    const store = await createStore();
+
+    await store.update("guild-id", {
+      runRoleTemplateOverrides: [
+        {
+          activityId: 321,
+          activityName: "Abyssos Savage",
+          roleId: "abyssos-role-id",
+        },
+      ],
+    });
+
+    await expect(
+      store.update("guild-id", {
+        runRoleTemplateOverrides: [],
+      }),
+    ).resolves.toMatchObject({
+      guildId: "guild-id",
+      runRoleTemplateOverrides: [],
+    });
+    await expect(store.get("guild-id")).resolves.not.toHaveProperty(
+      "runRoleTemplateOverrides",
+    );
   });
 
   async function createStore(): Promise<SqliteGuildSettingsStore> {

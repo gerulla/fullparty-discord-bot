@@ -44,6 +44,47 @@ describe("setupCommand", () => {
     expect(getReplyComponents(reply)).toHaveLength(5);
   });
 
+  it("lists configured template role overrides in the setup panel", async () => {
+    const context = createContext({
+      guildId: "guild-id",
+      runRoleTemplateOverrides: [
+        {
+          activityId: 321,
+          activityName: "Abyssos Savage",
+          roleId: "abyssos-role-id",
+        },
+        {
+          activityId: 654,
+          activityName: "Eden Ultimate",
+          roleId: "eden-role-id",
+        },
+      ],
+      syncDiscordNamesToFf14: false,
+    });
+    const reply = createAsyncRecorder();
+
+    await setupCommand.execute(
+      createChatInputInteraction({
+        reply: reply.fn,
+      }),
+      context,
+    );
+
+    expect(reply.calls[0]?.[0]).toMatchObject({
+      content: expect.stringContaining("**Template Role Overrides:**") as string,
+    });
+    expect(reply.calls[0]?.[0]).toMatchObject({
+      content: expect.stringContaining(
+        "<@&abyssos-role-id> - Abyssos Savage (321)",
+      ) as string,
+    });
+    expect(reply.calls[0]?.[0]).toMatchObject({
+      content: expect.stringContaining(
+        "<@&eden-role-id> - Eden Ultimate (654)",
+      ) as string,
+    });
+  });
+
   it("blocks setup outside guilds", async () => {
     const reply = createAsyncRecorder();
 
@@ -312,6 +353,9 @@ function mergeTestSettings(
 ): GuildSettings {
   const next: GuildSettings = {
     guildId,
+    ...(settings.runRoleTemplateOverrides
+      ? { runRoleTemplateOverrides: settings.runRoleTemplateOverrides }
+      : {}),
     syncDiscordNamesToFf14:
       patch.syncDiscordNamesToFf14 ?? settings.syncDiscordNamesToFf14,
   };
@@ -326,7 +370,10 @@ function mergeTestSettings(
 
 function setOptionalSetting(
   next: GuildSettings,
-  key: keyof Omit<GuildSettingsPatch, "syncDiscordNamesToFf14">,
+  key: keyof Omit<
+    GuildSettingsPatch,
+    "runRoleTemplateOverrides" | "syncDiscordNamesToFf14"
+  >,
   patch: GuildSettingsPatch,
   settings: GuildSettings,
 ): void {

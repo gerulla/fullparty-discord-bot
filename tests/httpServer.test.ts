@@ -1055,6 +1055,13 @@ describe("Fullparty webhook server", () => {
           Promise.resolve({
             botLogChannelId: "bot-log-channel-id",
             guildId,
+            runRoleTemplateOverrides: [
+              {
+                activityId: 123,
+                activityName: "Cloud of Darkness",
+                roleId: "abyssos-role-id",
+              },
+            ],
             syncDiscordNamesToFf14: true,
             upcomingRaiderRoleId: "upcoming-raider-role-id",
           }),
@@ -1131,7 +1138,7 @@ describe("Fullparty webhook server", () => {
                             permissionOverwrites: {
                               cache: {
                                 get: (roleId: string) =>
-                                  roleId === "upcoming-raider-role-id"
+                                  roleId === "abyssos-role-id"
                                     ? {
                                         allow: { bitfield: 1024n },
                                         deny: { bitfield: 2048n },
@@ -1156,13 +1163,13 @@ describe("Fullparty webhook server", () => {
                 roles: {
                   cache: {
                     get: (roleId: string) =>
-                      roleId === "upcoming-raider-role-id"
+                      roleId === "abyssos-role-id"
                         ? {
                             color: 0x22c55e,
                             hoist: false,
                             id: roleId,
                             mentionable: false,
-                            name: "Upcoming Raider Template",
+                            name: "Abyssos Template",
                             permissions: { bitfield: 0n },
                           }
                         : undefined,
@@ -1178,13 +1185,13 @@ describe("Fullparty webhook server", () => {
                   },
                   fetch: (roleId: string) =>
                     Promise.resolve(
-                      roleId === "upcoming-raider-role-id"
+                      roleId === "abyssos-role-id"
                         ? {
                             color: 0x22c55e,
                             hoist: false,
                             id: roleId,
                             mentionable: false,
-                            name: "Upcoming Raider Template",
+                            name: "Abyssos Template",
                             permissions: { bitfield: 0n },
                           }
                         : undefined,
@@ -1247,7 +1254,10 @@ describe("Fullparty webhook server", () => {
           roleId: "run-role-id",
           roleName: "FullParty: Cloud of Darkness 21:00 UTC",
           runId: 123,
-          templateRoleId: "upcoming-raider-role-id",
+          templateOverrideActivityId: 123,
+          templateOverrideActivityName: "Cloud of Darkness",
+          templateRoleId: "abyssos-role-id",
+          templateRoleSource: "override",
           type: "runs.starting_soon",
         },
       },
@@ -1334,7 +1344,7 @@ describe("Fullparty webhook server", () => {
             {
               inline: true,
               name: "📋 Template",
-              value: "<@&upcoming-raider-role-id>",
+              value: "<@&abyssos-role-id>",
             },
             {
               inline: true,
@@ -2143,6 +2153,8 @@ describe("Fullparty webhook server", () => {
                           {
                             colors: {
                               primaryColor: 0x22c55e,
+                              secondaryColor: 0x0ea5e9,
+                              tertiaryColor: 0xa855f7,
                             },
                             editable: true,
                             hoist: false,
@@ -2216,6 +2228,15 @@ describe("Fullparty webhook server", () => {
             ],
             roles: [
               expect.objectContaining({
+                color: 0x22c55e,
+                colors: {
+                  primary_color: 0x22c55e,
+                  primary_hex: "#22C55E",
+                  secondary_color: 0x0ea5e9,
+                  secondary_hex: "#0EA5E9",
+                  tertiary_color: 0xa855f7,
+                  tertiary_hex: "#A855F7",
+                },
                 id: "template-role-id",
                 usable_as_run_template: true,
               }) as unknown,
@@ -2225,6 +2246,7 @@ describe("Fullparty webhook server", () => {
               bot_moderator_role_id: "bot-moderator-role-id",
               linked_at: "2026-06-01T10:00:00.000Z",
               run_announcement_channel_id: "run-announcement-channel-id",
+              run_role_template_overrides: [],
               run_role_template_id: "template-role-id",
               sync_discord_names_to_ff14: true,
               upcoming_raider_role_id: "template-role-id",
@@ -2386,6 +2408,9 @@ describe("Fullparty webhook server", () => {
             ...(patch.botModeratorRoleId
               ? { botModeratorRoleId: patch.botModeratorRoleId }
               : {}),
+            ...(patch.runRoleTemplateOverrides
+              ? { runRoleTemplateOverrides: patch.runRoleTemplateOverrides }
+              : {}),
             ...(patch.upcomingRaiderRoleId
               ? { upcomingRaiderRoleId: patch.upcomingRaiderRoleId }
               : {}),
@@ -2403,6 +2428,13 @@ describe("Fullparty webhook server", () => {
             bot_log_channel_id: null,
             bot_moderator_role_id: "bot-moderator-role-id",
             linked_at: expect.any(String) as string,
+            run_role_template_overrides: [
+              {
+                activity_id: 321,
+                activity_name: "Abyssos Savage",
+                role_id: "abyssos-role-id",
+              },
+            ],
             run_role_template_id: "template-role-id",
             sync_discord_names_to_ff14: true,
           },
@@ -2417,6 +2449,15 @@ describe("Fullparty webhook server", () => {
           settings: {
             bot_log_channel_id: null,
             bot_moderator_role_id: "bot-moderator-role-id",
+            run_role_template_overrides: [
+              {
+                activity_id: 321,
+                activity_name: "Abyssos Savage",
+                created_at: null,
+                role_id: "abyssos-role-id",
+                updated_at: null,
+              },
+            ],
             run_role_template_id: "template-role-id",
             sync_discord_names_to_ff14: true,
             upcoming_raider_role_id: "template-role-id",
@@ -2433,6 +2474,13 @@ describe("Fullparty webhook server", () => {
           botLogChannelId: null,
           botModeratorRoleId: "bot-moderator-role-id",
           linkedAt: expect.any(String) as string,
+          runRoleTemplateOverrides: [
+            {
+              activityId: 321,
+              activityName: "Abyssos Savage",
+              roleId: "abyssos-role-id",
+            },
+          ],
           syncDiscordNamesToFf14: true,
           upcomingRaiderRoleId: "template-role-id",
         },

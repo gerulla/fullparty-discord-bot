@@ -70,12 +70,21 @@ const guildMembershipSnapshotRequestedDataSchema = z.looseObject({
 
 const nullableSettingIdSchema = z.string().trim().min(1).nullable().optional();
 
+const runRoleTemplateOverrideSchema = z.object({
+  activity_id: z.number().int().positive(),
+  activity_name: z.string().trim().min(1).max(300),
+  created_at: z.string().trim().min(1).nullable().optional(),
+  role_id: z.string().trim().min(1),
+  updated_at: z.string().trim().min(1).nullable().optional(),
+});
+
 const guildSettingsUpdatedDataSchema = z.looseObject({
   discord_guild_id: z.string().trim().min(1),
   settings: z.looseObject({
     bot_log_channel_id: nullableSettingIdSchema,
     bot_moderator_role_id: nullableSettingIdSchema,
     run_announcement_channel_id: nullableSettingIdSchema,
+    run_role_template_overrides: z.array(runRoleTemplateOverrideSchema).optional(),
     run_role_template_id: nullableSettingIdSchema,
     sync_discord_names_to_ff14: z.boolean().optional(),
     upcoming_raider_role_id: nullableSettingIdSchema,
@@ -972,6 +981,18 @@ function createGuildSettingsPatch(
     patch.upcomingRaiderRoleId = settings.run_role_template_id ?? null;
   }
 
+  if (hasOwn(settings, "run_role_template_overrides")) {
+    const overrides = settings.run_role_template_overrides ?? [];
+
+    patch.runRoleTemplateOverrides = overrides.map((override) => ({
+      activityId: override.activity_id,
+      activityName: override.activity_name,
+      ...(override.created_at ? { createdAt: override.created_at } : {}),
+      roleId: override.role_id,
+      ...(override.updated_at ? { updatedAt: override.updated_at } : {}),
+    }));
+  }
+
   if (
     typeof settings.sync_discord_names_to_ff14 === "boolean" &&
     hasOwn(settings, "sync_discord_names_to_ff14")
@@ -990,7 +1011,10 @@ type GuildSettingsUpdatedIdKey =
   | "bot_moderator_role_id"
   | "run_announcement_channel_id"
   | "upcoming_raider_role_id";
-type GuildSettingsPatchIdKey = keyof Omit<GuildSettingsPatch, "syncDiscordNamesToFf14">;
+type GuildSettingsPatchIdKey = keyof Omit<
+  GuildSettingsPatch,
+  "runRoleTemplateOverrides" | "syncDiscordNamesToFf14"
+>;
 
 function serializeGuildMemberCacheSnapshot(snapshot: GuildMemberCacheSnapshot): {
   cache_age_seconds: number | null;
@@ -1086,16 +1110,24 @@ async function assignUpcomingRaiderRole(
 ): Promise<ActionResult> {
   const discordUserIds = getRunReminderDiscordUserIds(data);
   const dryRun = processorOptions.dryRun === true;
+  const templateSelection = selectRunRoleTemplate(settings, data);
   const baseResult = {
     discordGuildId: data.discord_guild_id,
     reminderType: data.reminder_type,
     requestedUserCount: discordUserIds.length,
     ...(dryRun ? { roleDryRun: true } : {}),
     runId: data.run_id,
+    ...(templateSelection.overrideActivityId
+      ? {
+          templateOverrideActivityId: templateSelection.overrideActivityId,
+          templateOverrideActivityName: templateSelection.overrideActivityName,
+        }
+      : {}),
+    templateRoleSource: templateSelection.source,
     type: data.type,
   };
 
-  if (!settings.upcomingRaiderRoleId) {
+  if (!templateSelection.roleId) {
     const result = {
       ...baseResult,
       assignedUserCount: 0,
@@ -1120,7 +1152,7 @@ async function assignUpcomingRaiderRole(
       failedUserCount: 0,
       roleProcessingTimeMs: 0,
       skippedReason: "run_role_store_not_configured",
-      templateRoleId: settings.upcomingRaiderRoleId,
+      templateRoleId: templateSelection.roleId,
     };
 
     recordGuildAutomationIssue(options, {
@@ -1146,7 +1178,7 @@ async function assignUpcomingRaiderRole(
       failedUserCount: 0,
       roleProcessingTimeMs: 0,
       skippedReason: "no_discord_users",
-      templateRoleId: settings.upcomingRaiderRoleId,
+      templateRoleId: templateSelection.roleId,
     };
 
     await sendBotLogMessage(
@@ -1182,7 +1214,7 @@ async function assignUpcomingRaiderRole(
   let createdRunRole = false;
   let runRoleId: string | undefined;
   let runRoleName: string | undefined;
-  let templateRoleId: string | undefined = settings.upcomingRaiderRoleId;
+  let templateRoleId: string | undefined = templateSelection.roleId;
 
   try {
     const guild = await fetchGuildRunReminderGuild(options.client, data.discord_guild_id);
@@ -1196,7 +1228,7 @@ async function assignUpcomingRaiderRole(
         failures: ensureRoleResult.failures,
         roleProcessingTimeMs: Date.now() - startedAt,
         skippedReason: ensureRoleResult.skippedReason,
-        templateRoleId: settings.upcomingRaiderRoleId,
+        templateRoleId: templateSelection.roleId,
       };
 
       recordGuildAutomationIssue(options, {
@@ -1298,25 +1330,26 @@ async function inspectUpcomingRaiderRoleAssignment(
   const failures: RunReminderFailure[] = [];
   const startedAt = Date.now();
   let assignableUserCount = 0;
-  let templateRoleId: string | undefined = settings.upcomingRaiderRoleId;
+  const templateSelection = selectRunRoleTemplate(settings, data);
+  let templateRoleId: string | undefined = templateSelection.roleId;
 
   try {
     const guild = await fetchGuildRunReminderGuild(options.client, data.discord_guild_id);
-    const templateRole = settings.upcomingRaiderRoleId
-      ? await fetchGuildRole(guild, settings.upcomingRaiderRoleId)
+    const templateRole = templateSelection.roleId
+      ? await fetchGuildRole(guild, templateSelection.roleId)
       : undefined;
 
-    if (!settings.upcomingRaiderRoleId || !templateRole) {
+    if (!templateSelection.roleId || !templateRole) {
       return {
         ...baseResult,
         assignedUserCount: 0,
         copiedOverwriteCount: 0,
         failedUserCount: 0,
         roleProcessingTimeMs: Date.now() - startedAt,
-        skippedReason: settings.upcomingRaiderRoleId
+        skippedReason: templateSelection.roleId
           ? "template_role_not_found"
           : "upcoming_raider_role_not_configured",
-        templateRoleId: settings.upcomingRaiderRoleId,
+        templateRoleId: templateSelection.roleId,
       };
     }
 
@@ -1381,6 +1414,46 @@ type EnsureRunRoleResult = {
   templateRole: GuildRunRole;
 };
 
+type RunRoleTemplateSelection = {
+  overrideActivityId?: number | undefined;
+  overrideActivityName?: string | undefined;
+  roleId?: string | undefined;
+  source: "default" | "none" | "override";
+};
+
+function selectRunRoleTemplate(
+  settings: GuildSettings,
+  data: GuildRunReminderData,
+): RunRoleTemplateSelection {
+  const override = data.activity_id
+    ? settings.runRoleTemplateOverrides?.find(
+        (candidate) => candidate.activityId === data.activity_id,
+      )
+    : undefined;
+
+  if (override) {
+    return {
+      overrideActivityId: override.activityId,
+      overrideActivityName: override.activityName,
+      roleId: override.roleId,
+      source: "override",
+    };
+  }
+
+  if (settings.upcomingRaiderRoleId) {
+    return {
+      ...(data.activity_id ? { overrideActivityId: data.activity_id } : {}),
+      roleId: settings.upcomingRaiderRoleId,
+      source: "default",
+    };
+  }
+
+  return {
+    ...(data.activity_id ? { overrideActivityId: data.activity_id } : {}),
+    source: "none",
+  };
+}
+
 async function ensureRunRole(
   options: GuildAutomationProcessorOptions,
   guild: GuildRunReminderGuild,
@@ -1388,7 +1461,8 @@ async function ensureRunRole(
   settings: GuildSettings,
 ): Promise<EnsureRunRoleResult> {
   const failures: RunReminderFailure[] = [];
-  const templateRoleId = settings.upcomingRaiderRoleId;
+  const templateSelection = selectRunRoleTemplate(settings, data);
+  const templateRoleId = templateSelection.roleId;
 
   if (!templateRoleId) {
     return {

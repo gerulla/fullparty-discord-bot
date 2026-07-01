@@ -1,6 +1,7 @@
 import { openSqliteDatabase } from "../database/sqlite.js";
 import {
   createDefaultGuildSettings,
+  type GuildRoleTemplateOverride,
   type GuildSettings,
   type GuildSettingsPatch,
 } from "./types.js";
@@ -18,6 +19,14 @@ type GuildSettingsRow = {
   run_announcement_channel_id: string | null;
   sync_discord_names_to_ff14: number;
   upcoming_raider_role_id: string | null;
+  updated_at: string | null;
+};
+
+type GuildRoleTemplateOverrideRow = {
+  activity_id: number;
+  activity_name: string;
+  created_at: string | null;
+  role_id: string;
   updated_at: string | null;
 };
 
@@ -48,9 +57,14 @@ export class SqliteGuildSettingsStore implements GuildSettingsStore {
       )
       .get(guildId) as GuildSettingsRow | undefined;
 
-    return Promise.resolve(
-      row ? rowToGuildSettings(row) : createDefaultGuildSettings(guildId),
-    );
+    const settings = row ? rowToGuildSettings(row) : createDefaultGuildSettings(guildId);
+    const overrides = this.getRoleTemplateOverrides(guildId);
+
+    if (overrides.length > 0) {
+      settings.runRoleTemplateOverrides = overrides;
+    }
+
+    return Promise.resolve(settings);
   }
 
   public async update(
@@ -94,6 +108,12 @@ export class SqliteGuildSettingsStore implements GuildSettingsStore {
         next.updatedAt ?? null,
       );
 
+    this.replaceRoleTemplateOverrides(
+      guildId,
+      next.runRoleTemplateOverrides ?? [],
+      next.updatedAt ?? new Date().toISOString(),
+    );
+
     return next;
   }
 
@@ -117,6 +137,19 @@ export class SqliteGuildSettingsStore implements GuildSettingsStore {
     `);
     this.addColumnIfMissing("guild_settings", "bot_moderator_role_id", "TEXT");
     this.addColumnIfMissing("guild_settings", "linked_at", "TEXT");
+
+    this.database.exec(`
+      CREATE TABLE IF NOT EXISTS guild_role_template_overrides (
+        guild_id TEXT NOT NULL,
+        activity_id INTEGER NOT NULL,
+        activity_name TEXT NOT NULL,
+        role_id TEXT NOT NULL,
+        created_at TEXT,
+        updated_at TEXT,
+        PRIMARY KEY (guild_id, activity_id)
+      )
+    `);
+    this.recreateLegacyRoleTemplateOverrideTableIfNeeded();
   }
 
   private addColumnIfMissing(
@@ -134,6 +167,109 @@ export class SqliteGuildSettingsStore implements GuildSettingsStore {
 
     this.database.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
   }
+
+  private getRoleTemplateOverrides(guildId: string): GuildRoleTemplateOverride[] {
+    const rows = this.database
+      .prepare(
+        `
+          SELECT
+            activity_id,
+            activity_name,
+            created_at,
+            role_id,
+            updated_at
+          FROM guild_role_template_overrides
+          WHERE guild_id = ?
+          ORDER BY activity_name COLLATE NOCASE, activity_id
+        `,
+      )
+      .all(guildId) as GuildRoleTemplateOverrideRow[];
+
+    return rows.map((row) => {
+      const override: GuildRoleTemplateOverride = {
+        activityId: row.activity_id,
+        activityName: row.activity_name,
+        roleId: row.role_id,
+      };
+
+      if (row.created_at) {
+        override.createdAt = row.created_at;
+      }
+
+      if (row.updated_at) {
+        override.updatedAt = row.updated_at;
+      }
+
+      return override;
+    });
+  }
+
+  private replaceRoleTemplateOverrides(
+    guildId: string,
+    overrides: GuildRoleTemplateOverride[],
+    updatedAt: string,
+  ): void {
+    const existingOverrides = new Map(
+      this.getRoleTemplateOverrides(guildId).map((override) => [
+        override.activityId,
+        override,
+      ]),
+    );
+
+    this.database
+      .prepare("DELETE FROM guild_role_template_overrides WHERE guild_id = ?")
+      .run(guildId);
+
+    const statement = this.database.prepare(`
+      INSERT INTO guild_role_template_overrides (
+        guild_id,
+        activity_id,
+        activity_name,
+        role_id,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `);
+
+    for (const override of overrides) {
+      const existingOverride = existingOverrides.get(override.activityId);
+
+      statement.run(
+        guildId,
+        override.activityId,
+        override.activityName,
+        override.roleId,
+        override.createdAt ?? existingOverride?.createdAt ?? updatedAt,
+        override.updatedAt ?? updatedAt,
+      );
+    }
+  }
+
+  private recreateLegacyRoleTemplateOverrideTableIfNeeded(): void {
+    const rows = this.database
+      .prepare("PRAGMA table_info(guild_role_template_overrides)")
+      .all() as {
+      name: string;
+    }[];
+    const columnNames = new Set(rows.map((row) => row.name));
+
+    if (columnNames.has("activity_id")) {
+      return;
+    }
+
+    this.database.exec("DROP TABLE guild_role_template_overrides");
+    this.database.exec(`
+      CREATE TABLE guild_role_template_overrides (
+        guild_id TEXT NOT NULL,
+        activity_id INTEGER NOT NULL,
+        activity_name TEXT NOT NULL,
+        role_id TEXT NOT NULL,
+        created_at TEXT,
+        updated_at TEXT,
+        PRIMARY KEY (guild_id, activity_id)
+      )
+    `);
+  }
 }
 
 function mergeGuildSettingsPatch(
@@ -147,6 +283,10 @@ function mergeGuildSettingsPatch(
       patch.syncDiscordNamesToFf14 ?? current.syncDiscordNamesToFf14,
     updatedAt: new Date().toISOString(),
   };
+  const runRoleTemplateOverrides = getRoleTemplateOverridesPatchValue(
+    patch,
+    current.runRoleTemplateOverrides,
+  );
   const botLogChannelId = getPatchValue(
     patch,
     "botLogChannelId",
@@ -189,12 +329,28 @@ function mergeGuildSettingsPatch(
     next.upcomingRaiderRoleId = upcomingRaiderRoleId;
   }
 
+  if (runRoleTemplateOverrides) {
+    next.runRoleTemplateOverrides = runRoleTemplateOverrides;
+  }
+
   return next;
+}
+
+function getRoleTemplateOverridesPatchValue(
+  patch: GuildSettingsPatch,
+  currentValue: GuildRoleTemplateOverride[] | undefined,
+): GuildRoleTemplateOverride[] | undefined {
+  return Object.prototype.hasOwnProperty.call(patch, "runRoleTemplateOverrides")
+    ? patch.runRoleTemplateOverrides
+    : currentValue;
 }
 
 function getPatchValue(
   patch: GuildSettingsPatch,
-  key: keyof Omit<GuildSettingsPatch, "syncDiscordNamesToFf14">,
+  key: keyof Omit<
+    GuildSettingsPatch,
+    "runRoleTemplateOverrides" | "syncDiscordNamesToFf14"
+  >,
   currentValue: string | undefined,
 ): string | null | undefined {
   return Object.prototype.hasOwnProperty.call(patch, key) ? patch[key] : currentValue;
