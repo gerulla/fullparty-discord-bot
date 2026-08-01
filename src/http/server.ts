@@ -1,6 +1,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { mkdir, rename, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import { PermissionFlagsBits, PermissionsBitField } from "discord.js";
 import type { APIEmbed, APIEmbedField, Client, MessageCreateOptions } from "discord.js";
@@ -66,6 +68,14 @@ const guildMembershipSnapshotRequestedDataSchema = z.looseObject({
   discord_guild_id: z.string().trim().min(1),
   include_member_ids: z.boolean().optional(),
   request_refresh_if_stale: z.boolean().optional(),
+});
+
+const guildDisconnectedDataSchema = z.looseObject({
+  disconnected_at: z.string().trim().min(1).optional(),
+  discord_guild_id: z.string().trim().min(1),
+  group_id: z.number().int().positive().optional(),
+  group_name: z.string().trim().min(1).optional(),
+  group_slug: z.string().trim().min(1).optional(),
 });
 
 const nullableSettingIdSchema = z.string().trim().min(1).nullable().optional();
@@ -657,6 +667,12 @@ async function dispatchEvent(
     return createGuildMembershipSnapshotResult(options, data);
   }
 
+  if (event.event === "discord.guild.disconnected") {
+    const data = guildDisconnectedDataSchema.parse(event.data);
+
+    return disconnectGuildFromFullparty(options, data);
+  }
+
   if (event.event === "discord.guild.settings_updated") {
     const data = guildSettingsUpdatedDataSchema.parse(event.data);
 
@@ -950,6 +966,135 @@ async function updateGuildSettingsFromFullparty(
     settings: serializeGuildSettings(settings),
     updated: true,
   };
+}
+
+async function disconnectGuildFromFullparty(
+  options: GuildAutomationProcessorOptions,
+  data: z.infer<typeof guildDisconnectedDataSchema>,
+): Promise<ActionResult> {
+  const archivedAt = new Date();
+  const archive = await createGuildDisconnectArchive(options, data, archivedAt);
+  const archivePath = await writeGuildDisconnectArchive(data, archive);
+
+  await options.context.guildSettings.update(data.discord_guild_id, {
+    linkedAt: null,
+    runRoleTemplateOverrides: [],
+  });
+  await options.context.guildMemberCache?.markGuildObsolete(
+    data.discord_guild_id,
+    archivedAt,
+  );
+
+  options.context.logger.info("FullParty guild disconnected.", {
+    archivePath,
+    discordGuildId: data.discord_guild_id,
+    groupId: data.group_id,
+    groupSlug: data.group_slug,
+  });
+
+  return {
+    archived: true,
+    archivePath,
+    discordGuildId: data.discord_guild_id,
+    groupId: data.group_id ?? null,
+    groupSlug: data.group_slug ?? null,
+    unlinked: true,
+  };
+}
+
+async function createGuildDisconnectArchive(
+  options: GuildAutomationProcessorOptions,
+  data: z.infer<typeof guildDisconnectedDataSchema>,
+  archivedAt: Date,
+): Promise<Record<string, unknown>> {
+  const settings = await options.context.guildSettings.get(data.discord_guild_id);
+  const membershipCache = options.context.guildMemberCache
+    ? serializeGuildMemberCacheSnapshot(
+        await options.context.guildMemberCache.getSnapshot(data.discord_guild_id, {
+          includeUserIds: true,
+        }),
+      )
+    : null;
+  const runRoleMappings = options.context.guildRunRoles?.listByGuild
+    ? await options.context.guildRunRoles.listByGuild(data.discord_guild_id)
+    : null;
+  const liveSnapshot = await createBestEffortLiveGuildSnapshot(options, data);
+
+  return {
+    archived_at: archivedAt.toISOString(),
+    disconnected_event: data,
+    discord_guild_id: data.discord_guild_id,
+    group_id: data.group_id ?? null,
+    group_name: data.group_name ?? null,
+    group_slug: data.group_slug ?? null,
+    local_data: {
+      live_guild_snapshot: liveSnapshot,
+      membership_cache: membershipCache,
+      run_role_mappings: runRoleMappings,
+      settings: serializeGuildSettings(settings),
+    },
+  };
+}
+
+async function createBestEffortLiveGuildSnapshot(
+  options: GuildAutomationProcessorOptions,
+  data: z.infer<typeof guildDisconnectedDataSchema>,
+): Promise<unknown> {
+  try {
+    return await createDiscordGuildSnapshot(
+      options.client,
+      options.context,
+      data.discord_guild_id,
+    );
+  } catch (error) {
+    return {
+      error: serializeFailureError(error),
+      unavailable: true,
+    };
+  }
+}
+
+async function writeGuildDisconnectArchive(
+  data: z.infer<typeof guildDisconnectedDataSchema>,
+  archive: Record<string, unknown>,
+): Promise<string> {
+  const directory = join(
+    process.cwd(),
+    "history",
+    "groups",
+    "unlinked",
+    createGroupHistoryDirectoryName(data),
+  );
+  const archivePath = join(directory, "data.json");
+  const temporaryArchivePath = join(directory, "data.json.tmp");
+
+  await mkdir(directory, { recursive: true });
+  await writeFile(temporaryArchivePath, `${JSON.stringify(archive, null, 2)}\n`, "utf8");
+  await rename(temporaryArchivePath, archivePath);
+
+  return archivePath;
+}
+
+function createGroupHistoryDirectoryName(
+  data: z.infer<typeof guildDisconnectedDataSchema>,
+): string {
+  return sanitizeHistoryPathSegment(
+    data.group_slug ??
+      data.group_name ??
+      (data.group_id ? `group-${String(data.group_id)}` : undefined) ??
+      `discord-guild-${data.discord_guild_id}`,
+  );
+}
+
+function sanitizeHistoryPathSegment(value: string): string {
+  const sanitized = value
+    .trim()
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9._-]+/g, "-")
+    .replaceAll(/^-+|-+$/g, "")
+    .slice(0, 120);
+
+  return sanitized.length > 0 ? sanitized : "unknown-group";
 }
 
 async function markGuildLinked(

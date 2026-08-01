@@ -76,6 +76,55 @@ describe("SqliteGuildRunRoleStore", () => {
     });
   });
 
+  it("lists run role mappings for a guild", async () => {
+    const store = await createStore();
+    const now = new Date().toISOString();
+
+    await store.upsert({
+      createdAt: now,
+      discordGuildId: "guild-id",
+      roleId: "run-role-id-2",
+      roleName: "FullParty: Run 2",
+      runId: 2,
+      status: "active",
+      templateRoleId: "template-role-id",
+      updatedAt: now,
+    });
+    await store.upsert({
+      createdAt: now,
+      discordGuildId: "guild-id",
+      roleId: "run-role-id-1",
+      roleName: "FullParty: Run 1",
+      runId: 1,
+      status: "active",
+      templateRoleId: "template-role-id",
+      updatedAt: now,
+    });
+    await store.upsert({
+      createdAt: now,
+      discordGuildId: "other-guild-id",
+      roleId: "other-run-role-id",
+      roleName: "FullParty: Other Run",
+      runId: 1,
+      status: "active",
+      templateRoleId: "template-role-id",
+      updatedAt: now,
+    });
+
+    await expect(store.listByGuild("guild-id")).resolves.toMatchObject([
+      {
+        discordGuildId: "guild-id",
+        roleId: "run-role-id-1",
+        runId: 1,
+      },
+      {
+        discordGuildId: "guild-id",
+        roleId: "run-role-id-2",
+        runId: 2,
+      },
+    ]);
+  });
+
   async function createStore(): Promise<SqliteGuildRunRoleStore> {
     const directory = await mkdtemp(join(tmpdir(), "fullparty-run-roles-"));
     const databasePath = join(directory, "run-roles.sqlite");

@@ -1,6 +1,6 @@
 import { once } from "node:events";
 import { createHmac } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import type { Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -2488,6 +2488,166 @@ describe("Fullparty webhook server", () => {
     ]);
   });
 
+  it("archives and unlinks guild data when FullParty disconnects a guild", async () => {
+    const historyDirectory = join(
+      process.cwd(),
+      "history",
+      "groups",
+      "unlinked",
+      "test-unlink",
+    );
+    const settingsUpdates: unknown[] = [];
+    const obsoleteGuildIds: string[] = [];
+    const context: BotContext = {
+      ...createContext(),
+      guildMemberCache: {
+        getSnapshot: (
+          discordGuildId: string,
+          options?: { includeUserIds?: boolean | undefined },
+        ) =>
+          Promise.resolve({
+            cacheAgeSeconds: 12,
+            cachedMemberCount: 2,
+            discordGuildId,
+            ...(options?.includeUserIds ? { discordUserIds: ["111", "222"] } : {}),
+            lastError: null,
+            lastFullRefreshAt: "2026-08-01T10:00:00.000Z",
+            memberCount: 3,
+            nextRefreshAfter: "2026-08-02T10:00:00.000Z",
+            refreshStatus: "fresh",
+            stale: false,
+            updatedAt: "2026-08-01T10:00:00.000Z",
+          }),
+        markGuildObsolete: (discordGuildId: string) => {
+          obsoleteGuildIds.push(discordGuildId);
+          return Promise.resolve();
+        },
+      } as never,
+      guildRunRoles: {
+        get: () => Promise.resolve(undefined),
+        listByGuild: (discordGuildId: string) =>
+          Promise.resolve([
+            {
+              createdAt: "2026-08-01T09:00:00.000Z",
+              discordGuildId,
+              roleId: "run-role-id",
+              roleName: "FullParty: Run",
+              runId: 123,
+              status: "active",
+              templateRoleId: "template-role-id",
+              updatedAt: "2026-08-01T09:00:00.000Z",
+            },
+          ]),
+        markDeleted: () => Promise.resolve(),
+        upsert: (mapping) => Promise.resolve(mapping),
+      },
+      guildSettings: {
+        get: (guildId) =>
+          Promise.resolve({
+            botLogChannelId: "bot-log-channel-id",
+            guildId,
+            linkedAt: "2026-08-01T09:30:00.000Z",
+            runRoleTemplateOverrides: [
+              {
+                activityId: 321,
+                activityName: "Abyssos Savage",
+                roleId: "abyssos-role-id",
+              },
+            ],
+            syncDiscordNamesToFf14: true,
+            upcomingRaiderRoleId: "template-role-id",
+          }),
+        update: (guildId, patch) => {
+          settingsUpdates.push({ guildId, patch });
+          return Promise.resolve({
+            guildId,
+            syncDiscordNamesToFf14: true,
+          });
+        },
+      },
+    };
+    const baseUrl = await listen(
+      createTestServer({
+        client: {
+          guilds: {
+            fetch: () => {
+              throw new Error("Guild is unavailable.");
+            },
+          },
+        } as never,
+        context,
+      }),
+    );
+
+    tempDirs.push(historyDirectory);
+
+    await expect(
+      postAction(baseUrl, {
+        data: {
+          disconnected_at: "2026-08-01T11:00:00+00:00",
+          discord_guild_id: "guild-id",
+          group_id: 45,
+          group_name: "Test Unlink",
+          group_slug: "test-unlink",
+        },
+        event: "discord.guild.disconnected",
+      }),
+    ).resolves.toMatchObject({
+      body: {
+        event: "discord.guild.disconnected",
+        result: {
+          archived: true,
+          discordGuildId: "guild-id",
+          groupId: 45,
+          groupSlug: "test-unlink",
+          unlinked: true,
+        },
+      },
+      status: 200,
+    });
+    expect(settingsUpdates).toEqual([
+      {
+        guildId: "guild-id",
+        patch: {
+          linkedAt: null,
+          runRoleTemplateOverrides: [],
+        },
+      },
+    ]);
+    expect(obsoleteGuildIds).toEqual(["guild-id"]);
+
+    const archive = JSON.parse(
+      await readFile(join(historyDirectory, "data.json"), "utf8"),
+    ) as Record<string, unknown>;
+
+    expect(archive).toMatchObject({
+      discord_guild_id: "guild-id",
+      group_id: 45,
+      group_slug: "test-unlink",
+      local_data: {
+        membership_cache: {
+          discord_user_ids: ["111", "222"],
+        },
+        run_role_mappings: [
+          {
+            roleId: "run-role-id",
+            runId: 123,
+          },
+        ],
+        settings: {
+          linked_at: "2026-08-01T09:30:00.000Z",
+          run_role_template_overrides: [
+            {
+              activity_id: 321,
+              activity_name: "Abyssos Savage",
+              role_id: "abyssos-role-id",
+            },
+          ],
+        },
+      },
+    });
+  });
+
   it("rejects unsupported events", async () => {
     const baseUrl = await listen(createTestServer());
 
@@ -2645,6 +2805,12 @@ function createMemoryRunRoleStore(): NonNullable<BotContext["guildRunRoles"]> {
   return {
     get: (discordGuildId, runId) =>
       Promise.resolve(mappings.get(`${discordGuildId}:${String(runId)}`)),
+    listByGuild: (discordGuildId) =>
+      Promise.resolve(
+        [...mappings.values()]
+          .filter((mapping) => mapping.discordGuildId === discordGuildId)
+          .sort((left, right) => left.runId - right.runId),
+      ),
     markDeleted: (discordGuildId, runId) => {
       const key = `${discordGuildId}:${String(runId)}`;
       const mapping = mappings.get(key);

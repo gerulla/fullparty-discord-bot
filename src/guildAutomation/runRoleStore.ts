@@ -15,6 +15,7 @@ export type GuildRunRoleMapping = {
 export type GuildRunRoleStore = {
   close?(): void;
   get(discordGuildId: string, runId: number): Promise<GuildRunRoleMapping | undefined>;
+  listByGuild?(discordGuildId: string): Promise<GuildRunRoleMapping[]>;
   markDeleted(discordGuildId: string, runId: number): Promise<void>;
   markDeletedByRole?(discordGuildId: string, roleId: string): Promise<void>;
   upsert(mapping: GuildRunRoleMapping): Promise<GuildRunRoleMapping>;
@@ -65,6 +66,30 @@ export class SqliteGuildRunRoleStore implements GuildRunRoleStore {
       .get(discordGuildId, runId) as GuildRunRoleRow | undefined;
 
     return Promise.resolve(row ? rowToGuildRunRoleMapping(row) : undefined);
+  }
+
+  public listByGuild(discordGuildId: string): Promise<GuildRunRoleMapping[]> {
+    const rows = this.database
+      .prepare(
+        `
+          SELECT
+            created_at,
+            deleted_at,
+            discord_guild_id,
+            role_id,
+            role_name,
+            run_id,
+            status,
+            template_role_id,
+            updated_at
+          FROM guild_run_roles
+          WHERE discord_guild_id = ?
+          ORDER BY run_id ASC
+        `,
+      )
+      .all(discordGuildId) as GuildRunRoleRow[];
+
+    return Promise.resolve(rows.map(rowToGuildRunRoleMapping));
   }
 
   public markDeleted(discordGuildId: string, runId: number): Promise<void> {
