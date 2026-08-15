@@ -156,6 +156,12 @@
       "actionLabel": "View run",
       "tone": "warning"
     },
+    "runs.party_finder_published": {
+      "title": "Party Finder posted",
+      "description": "Party Finder details were posted for your run.",
+      "actionLabel": "View run",
+      "tone": "info"
+    },
     "system.maintenance.upcoming": {
       "title": "Maintenance upcoming",
       "description": "FullParty maintenance is coming up.",

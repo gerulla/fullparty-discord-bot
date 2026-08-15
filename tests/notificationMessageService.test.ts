@@ -35,6 +35,7 @@ describe("NotificationMessageService", () => {
         "runs.completed",
         "runs.starting_soon",
         "runs.starting_now",
+        "runs.party_finder_published",
         "system.maintenance.upcoming",
         "system.announcement",
       ]),
@@ -338,6 +339,48 @@ describe("NotificationMessageService", () => {
     );
   });
 
+  it("includes roster publication datetime from nested run payloads", () => {
+    const service = new NotificationMessageService({
+      fullpartyWebBaseUrl: "https://fullparty.gg",
+    });
+
+    expectNotificationMessage(
+      service.createDmMessage(
+        createNotificationDelivery({
+          actionUrl: "http://fullparty.test/en/account/applications",
+          category: "assignments",
+          params: {
+            activity: "Activity #6921",
+            character: "Giki Chomusuke",
+            group: "asd",
+            slot_group: "Party A",
+          },
+          payload: {
+            activity: {
+              starts_at: "2026-05-30T01:00:00+00:00",
+            },
+            activity_id: 6921,
+            activity_title: "Activity #6921",
+            character_name: "Giki Chomusuke",
+            group_id: 21,
+            group_slug: "asdd",
+            slot_group: "Party A",
+            status: "approved",
+          },
+          type: "assignments.roster_published_assigned",
+        }),
+      ),
+      {
+        actionLabel: "View roster",
+        actionUrl: "http://fullparty.test/en/account/applications",
+        color: 0x22c55e,
+        description:
+          "Your roster assignment for Activity #6921 in asd was published.\n\nScheduled start: <t:1780102800:F> (<t:1780102800:R>)\nCharacter: Giki Chomusuke\nSlot: Party A",
+        footerText: "🎯 FullParty • Assignments",
+        title: "Roster published",
+      },
+    );
+  });
   it("includes designation assignment details when present", () => {
     const service = new NotificationMessageService({
       fullpartyWebBaseUrl: "https://fullparty.gg",
@@ -780,6 +823,52 @@ describe("NotificationMessageService", () => {
     );
   });
 
+  it("includes party finder details when present", () => {
+    const service = new NotificationMessageService({
+      fullpartyWebBaseUrl: "https://fullparty.gg",
+    });
+
+    expectNotificationMessage(
+      service.createDmMessage(
+        createNotificationDelivery({
+          actionUrl: "https://fullparty.gg/groups/example-group/activities/987/overview",
+          category: "runs_and_reminders",
+          params: {
+            activity: "Forked Tower Reclear",
+            character: "Giki Chomusuke",
+            group: "Example Group",
+            password: "0042",
+            world: "Lich",
+          },
+          payload: {
+            activity_id: 987,
+            activity_title: "Forked Tower Reclear",
+            group_id: 12,
+            group_slug: "example-group",
+            party_finder: {
+              character_name: "Giki Chomusuke",
+              password: "0042",
+              published_at: "2026-08-15T18:30:00+00:00",
+              world: "Lich",
+            },
+            starts_at: "2026-08-16T19:00:00+00:00",
+            status: "assigned",
+          },
+          type: "runs.party_finder_published",
+        }),
+      ),
+      {
+        actionLabel: "View run",
+        actionUrl: "https://fullparty.gg/groups/example-group/activities/987/overview",
+        color: 0x3b82f6,
+        description:
+          "Party Finder was posted for Forked Tower Reclear in Example Group.\n\nScheduled start: <t:1786906800:F> (<t:1786906800:R>)\nCharacter: Giki Chomusuke\nWorld: Lich\nPassword: `0042`\nPosted at: <t:1786818600:F> (<t:1786818600:R>)\nStatus: Assigned",
+        footerText: "🗓️ FullParty • Runs And Reminders",
+        title: "Party Finder posted",
+      },
+    );
+  });
+
   it("renders unknown notification types with a readable fallback", () => {
     const service = new NotificationMessageService({
       fullpartyWebBaseUrl: "https://fullparty.gg",
@@ -965,12 +1054,15 @@ const expectedDetailEmojiByLabel: Record<string, string> = {
   "Entry mode": "📝",
   "Applications waiting": "📥",
   Milestones: "🏁",
+  Password: "🔐",
   Progress: "📈",
+  "Posted at": "📣",
   "Raid Position": "📍",
   Reason: "📝",
   "Scheduled start": "🕒",
   Slot: "🎯",
   Status: "📌",
+  World: "🌍",
 };
 
 function isNonEmptyString(value: string): boolean {

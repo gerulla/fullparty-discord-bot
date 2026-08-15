@@ -253,11 +253,14 @@ const detailEmojiByLabel: Record<string, string> = {
   Progress: "📈",
   "Progress link": "🔗",
   "Progress recorded": "📈",
+  "Posted at": "📣",
   "Raid Position": "📍",
   Reason: "📝",
   "Scheduled start": "🕒",
   Slot: "🎯",
   Status: "📌",
+  Password: "🔐",
+  World: "🌍",
 };
 
 const notificationEmojiByType: Record<string, string> = {
@@ -281,6 +284,7 @@ const notificationEmojiByType: Record<string, string> = {
   "characters.unclaimed": "👋",
   "runs.cancelled": "🚫",
   "runs.completed": "🏁",
+  "runs.party_finder_published": "📢",
   "runs.starting_now": "🚀",
   "runs.starting_soon": "⏰",
   "system.announcement": "📣",
