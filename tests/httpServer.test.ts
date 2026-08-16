@@ -1458,7 +1458,7 @@ describe("Fullparty webhook server", () => {
         event: "discord.guild.run_reminder",
         result: {
           assignedUserCount: 0,
-          failedUserCount: 0,
+          failedUserCount: 1,
           requestedUserCount: 1,
           skippedReason: "upcoming_raider_role_not_configured",
           type: "runs.starting_now",
@@ -1637,7 +1637,7 @@ describe("Fullparty webhook server", () => {
       body: {
         result: {
           assignedUserCount: 1,
-          failedUserCount: 1,
+          failedUserCount: 2,
         },
       },
       status: 200,
@@ -1791,6 +1791,8 @@ describe("Fullparty webhook server", () => {
           discord_guild_id: "900100200300400500",
           group_slug: "my-group",
           participants: [
+            null,
+            null,
             {
               discord_user_id: "999",
               primary_character: {

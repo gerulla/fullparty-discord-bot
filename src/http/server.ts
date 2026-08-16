@@ -1247,6 +1247,45 @@ const nonHealthRunRoleSkippedReasons = new Set([
   "upcoming_raider_role_not_configured",
 ]);
 
+function getRunReminderPlacedUserCount(data: GuildRunReminderData): number {
+  const totalPlacedCount = getLooseNumber(data, "total_placed_count");
+  const discordUserCount = getRunReminderDiscordUserIds(data).length;
+  const participantCount = data.participants.length + data.unlinked_participants.length;
+  const unlinkedCount = getRunReminderUnlinkedPlacedUserCount(data);
+
+  return Math.max(totalPlacedCount, participantCount, discordUserCount + unlinkedCount);
+}
+
+function getRunReminderUnlinkedPlacedUserCount(data: GuildRunReminderData): number {
+  return Math.max(
+    getLooseNumber(data, "unlinked_count"),
+    data.unlinked_participants.length,
+    data.participants.filter((participant) => !participant.discord_user_id).length,
+  );
+}
+
+function createUnlinkedPlacedUserFailures(
+  data: GuildRunReminderData,
+): RunReminderFailure[] {
+  const unlinkedCount = getRunReminderUnlinkedPlacedUserCount(data);
+
+  if (unlinkedCount <= 0) {
+    return [];
+  }
+
+  if (data.unlinked_participants.length > 0) {
+    return data.unlinked_participants.map((participant) => ({
+      discordUserId: formatParticipantCharacterLabel(participant) ?? "Unlinked user",
+      error: "No Discord Account Linked",
+    }));
+  }
+
+  return Array.from({ length: unlinkedCount }, (_, index) => ({
+    discordUserId: `Unlinked user ${String(index + 1)}`,
+    error: "No Discord Account Linked",
+  }));
+}
+
 async function assignUpcomingRaiderRole(
   options: GuildAutomationProcessorOptions,
   data: GuildRunReminderData,
@@ -1255,11 +1294,16 @@ async function assignUpcomingRaiderRole(
 ): Promise<ActionResult> {
   const discordUserIds = getRunReminderDiscordUserIds(data);
   const dryRun = processorOptions.dryRun === true;
+  const requestedUserCount = getRunReminderPlacedUserCount(data);
+  const unresolvedPlacedUserCount = Math.max(
+    0,
+    requestedUserCount - discordUserIds.length,
+  );
   const templateSelection = selectRunRoleTemplate(settings, data);
   const baseResult = {
     discordGuildId: data.discord_guild_id,
     reminderType: data.reminder_type,
-    requestedUserCount: discordUserIds.length,
+    requestedUserCount,
     ...(dryRun ? { roleDryRun: true } : {}),
     runId: data.run_id,
     ...(templateSelection.overrideActivityId
@@ -1276,7 +1320,7 @@ async function assignUpcomingRaiderRole(
     const result = {
       ...baseResult,
       assignedUserCount: 0,
-      failedUserCount: 0,
+      failedUserCount: requestedUserCount,
       roleProcessingTimeMs: 0,
       skippedReason: "upcoming_raider_role_not_configured",
     };
@@ -1294,7 +1338,7 @@ async function assignUpcomingRaiderRole(
     const result = {
       ...baseResult,
       assignedUserCount: 0,
-      failedUserCount: 0,
+      failedUserCount: requestedUserCount,
       roleProcessingTimeMs: 0,
       skippedReason: "run_role_store_not_configured",
       templateRoleId: templateSelection.roleId,
@@ -1320,9 +1364,9 @@ async function assignUpcomingRaiderRole(
     const result = {
       ...baseResult,
       assignedUserCount: 0,
-      failedUserCount: 0,
+      failedUserCount: requestedUserCount,
       roleProcessingTimeMs: 0,
-      skippedReason: "no_discord_users",
+      ...(requestedUserCount === 0 ? { skippedReason: "no_discord_users" } : {}),
       templateRoleId: templateSelection.roleId,
     };
 
@@ -1369,7 +1413,7 @@ async function assignUpcomingRaiderRole(
       const result = {
         ...baseResult,
         assignedUserCount: 0,
-        failedUserCount: ensureRoleResult.failures.length,
+        failedUserCount: requestedUserCount,
         failures: ensureRoleResult.failures,
         roleProcessingTimeMs: Date.now() - startedAt,
         skippedReason: ensureRoleResult.skippedReason,
@@ -1437,7 +1481,7 @@ async function assignUpcomingRaiderRole(
     assignedUserCount,
     copiedOverwriteCount,
     createdRunRole,
-    failedUserCount: failures.length,
+    failedUserCount: failures.length + unresolvedPlacedUserCount,
     failures,
     roleId: runRoleId,
     roleName: runRoleName,
@@ -1445,14 +1489,14 @@ async function assignUpcomingRaiderRole(
     templateRoleId,
   };
 
-  if (failures.length > 0) {
+  if (result.failedUserCount > 0) {
     recordGuildAutomationIssue(options, {
       affectsHealth: false,
       action: "run_role_assign",
       data,
       details: result,
       errorCode: "run_role_assign_partial_failure",
-      message: `${String(failures.length)} run role assignment issue(s) occurred.`,
+      message: `${String(result.failedUserCount)} run role assignment issue(s) occurred.`,
       severity: assignedUserCount > 0 ? "warn" : "error",
     });
   }
@@ -1475,6 +1519,10 @@ async function inspectUpcomingRaiderRoleAssignment(
   const failures: RunReminderFailure[] = [];
   const startedAt = Date.now();
   let assignableUserCount = 0;
+  const requestedUserCount =
+    typeof baseResult.requestedUserCount === "number"
+      ? baseResult.requestedUserCount
+      : getRunReminderPlacedUserCount(data);
   const templateSelection = selectRunRoleTemplate(settings, data);
   let templateRoleId: string | undefined = templateSelection.roleId;
 
@@ -1489,7 +1537,7 @@ async function inspectUpcomingRaiderRoleAssignment(
         ...baseResult,
         assignedUserCount: 0,
         copiedOverwriteCount: 0,
-        failedUserCount: 0,
+        failedUserCount: requestedUserCount,
         roleProcessingTimeMs: Date.now() - startedAt,
         skippedReason: templateSelection.roleId
           ? "template_role_not_found"
@@ -1507,7 +1555,7 @@ async function inspectUpcomingRaiderRoleAssignment(
         ...baseResult,
         assignedUserCount: 0,
         copiedOverwriteCount: 0,
-        failedUserCount: 0,
+        failedUserCount: requestedUserCount,
         roleProcessingTimeMs: Date.now() - startedAt,
         skippedReason: preflightFailure,
         templateRoleId,
@@ -1542,7 +1590,7 @@ async function inspectUpcomingRaiderRoleAssignment(
     assignedUserCount: assignableUserCount,
     copiedOverwriteCount: 0,
     createdRunRole: false,
-    failedUserCount: failures.length,
+    failedUserCount: Math.max(failures.length, requestedUserCount - assignableUserCount),
     failures,
     roleProcessingTimeMs: Date.now() - startedAt,
     templateRoleId,
@@ -1830,8 +1878,10 @@ async function syncRunReminderNicknames(
   settings: GuildSettings,
 ): Promise<ActionResult> {
   const targets = getRunReminderNicknameTargets(data);
+  const requestedUserCount = getRunReminderPlacedUserCount(data);
+  const missingTargetCount = Math.max(0, requestedUserCount - targets.length);
   const baseResult = {
-    nicknameRequestedUserCount: targets.length,
+    nicknameRequestedUserCount: requestedUserCount,
     nicknameSyncEnabled: settings.syncDiscordNamesToFf14,
   };
 
@@ -1840,17 +1890,21 @@ async function syncRunReminderNicknames(
       ...baseResult,
       nicknameFailedUserCount: 0,
       nicknameSkippedReason: "nickname_sync_disabled",
-      nicknameSkippedUserCount: targets.length,
+      nicknameSkippedUserCount: requestedUserCount,
       nicknameSyncedUserCount: 0,
     };
   }
 
   if (targets.length === 0) {
+    const failures = createNicknamePreparationFailures(data, targets, missingTargetCount);
     const result = {
       ...baseResult,
-      nicknameFailedUserCount: 0,
+      nicknameFailedUserCount: requestedUserCount,
+      nicknameFailures: failures,
       nicknameProcessingTimeMs: 0,
-      nicknameSkippedReason: "no_nickname_targets",
+      ...(requestedUserCount === 0
+        ? { nicknameSkippedReason: "no_nickname_targets" }
+        : {}),
       nicknameSkippedUserCount: 0,
       nicknameSyncedUserCount: 0,
     };
@@ -1864,7 +1918,8 @@ async function syncRunReminderNicknames(
     return result;
   }
 
-  const failures: { discordUserId: string; error: string }[] = [];
+  const failures: { discordUserId: string; error: string }[] =
+    createNicknamePreparationFailures(data, targets, missingTargetCount);
   const startedAt = Date.now();
   let skippedUserCount = 0;
   let syncedUserCount = 0;
@@ -1907,6 +1962,18 @@ async function syncRunReminderNicknames(
     });
   }
 
+  const unaccountedFailureCount = Math.max(
+    0,
+    requestedUserCount - syncedUserCount - skippedUserCount - failures.length,
+  );
+
+  for (let index = 0; index < unaccountedFailureCount; index += 1) {
+    failures.push({
+      discordUserId: `Unresolved roster user ${String(index + 1)}`,
+      error: "The bot could not prepare a nickname update for this roster user.",
+    });
+  }
+
   const result = {
     ...baseResult,
     nicknameFailedUserCount: failures.length,
@@ -1916,14 +1983,14 @@ async function syncRunReminderNicknames(
     nicknameSyncedUserCount: syncedUserCount,
   };
 
-  if (failures.length > 0) {
+  if (result.nicknameFailedUserCount > 0) {
     recordGuildAutomationIssue(options, {
       affectsHealth: false,
       action: "nickname_sync",
       data,
       details: result,
       errorCode: "nickname_sync_partial_failure",
-      message: `${String(failures.length)} nickname sync issue(s) occurred.`,
+      message: `${String(result.nicknameFailedUserCount)} nickname sync issue(s) occurred.`,
       severity: syncedUserCount > 0 || skippedUserCount > 0 ? "warn" : "error",
     });
   }
@@ -1976,6 +2043,42 @@ function getRunReminderNicknameTargets(data: GuildRunReminderData): NicknameSync
   }
 
   return [...targetsByUserId.values()];
+}
+
+function createNicknamePreparationFailures(
+  data: GuildRunReminderData,
+  targets: NicknameSyncTarget[],
+  missingTargetCount: number,
+): RunReminderFailure[] {
+  if (missingTargetCount <= 0) {
+    return [];
+  }
+
+  const targetUserIds = new Set(targets.map((target) => target.discordUserId));
+  const failures = createUnlinkedPlacedUserFailures(data);
+
+  for (const participant of data.participants) {
+    if (!participant.discord_user_id || targetUserIds.has(participant.discord_user_id)) {
+      continue;
+    }
+
+    failures.push({
+      discordUserId:
+        formatParticipantCharacterLabel(participant) ?? participant.discord_user_id,
+      error: "No primary character included for nickname sync.",
+    });
+  }
+
+  const placeholderCount = Math.max(0, missingTargetCount - failures.length);
+
+  for (let index = 0; index < placeholderCount; index += 1) {
+    failures.push({
+      discordUserId: `Unresolved roster user ${String(index + 1)}`,
+      error: "The bot could not prepare a nickname update for this roster user.",
+    });
+  }
+
+  return failures.slice(0, missingTargetCount);
 }
 
 function formatCharacterNickname(character: {
@@ -2437,7 +2540,7 @@ function buildRunReminderRoleSyncLogMessage(
   const skippedReason = getResultString(result, "skippedReason");
   const templateRoleId = getResultString(result, "templateRoleId");
   const failures = getResultFailures(result, "failures");
-  const unlinkedCount = getLooseNumber(data, "unlinked_count");
+  const unlinkedCount = getRunReminderUnlinkedPlacedUserCount(data);
   const status = getRoleSyncStatus({
     assignedUserCount,
     failedUserCount,
