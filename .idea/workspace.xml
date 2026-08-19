@@ -1,11 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="7ea4c41c-944a-424e-a648-fafa4681aff5" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/src/guildAutomation/runReminderTypes.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/guildAutomation/runReminderTypes.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/http/server.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/http/server.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/httpServer.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/tests/httpServer.test.ts" afterDir="false" />
-    </list>
+    <list default="true" id="7ea4c41c-944a-424e-a648-fafa4681aff5" name="Changes" comment="" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -18,9 +14,9 @@
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
   <component name="PhpWorkspaceProjectConfiguration" interpreter_name="PHP" />
-  <component name="ProjectColorInfo"><![CDATA[{
-  "associatedIndex": 2
-}]]></component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 2
+}</component>
   <component name="ProjectId" id="3I0WsZag0l46RyEILPLo5iTSvNj" />
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
@@ -37,6 +33,7 @@
     "junie.onboarding.icon.badge.shown": "true",
     "nodejs_package_manager_path": "npm",
     "to.speed.mode.migration.done": "true",
+    "ts.external.directory.path": "D:\\fullparty-discord-bot\\node_modules\\typescript\\lib",
     "vue.rearranger.settings.migration": "true"
   }
 }]]></component>
@@ -56,7 +53,11 @@
       <option name="presentableId" value="Default" />
       <updated>1786902174903</updated>
       <workItem from="1786902179177" duration="17000" />
+      <workItem from="1787006700791" duration="17000" />
     </task>
     <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
   </component>
 </project>

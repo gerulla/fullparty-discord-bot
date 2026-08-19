@@ -1445,7 +1445,7 @@ describe("command execution", () => {
     expect(editReply.calls).toEqual([
       [
         {
-          content: `✅ Role assignment ran for Run #6932.\nAssigned 1/1 users.\nPlaced users: 2 total, 1 without linked Discord.\nRun role: <@&run-role-id> (${expectedRunRoleName})\nCheck the bot-log channel for the full status embed.`,
+          content: `✅ Role assignment ran for Run #6932.\nAssigned 1/2 users.\nPlaced users: 2 total, 1 without linked Discord.\nFailed: 1 users.\nRun role: <@&run-role-id> (${expectedRunRoleName})\nCheck the bot-log channel for the full status embed.`,
         },
       ],
     ]);
