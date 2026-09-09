@@ -12,6 +12,10 @@
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
     "target": "ES2022",
     "types": ["vite/client", "node"],
     "useDefineForClassFields": true

@@ -1,3 +1,5 @@
+import { serializeLogValue } from "./serialization.js";
+
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
 export type Logger = {
@@ -28,7 +30,11 @@ export function createLogger(minimumLevel: LogLevel = "info"): Logger {
       level,
       message,
       timestamp: new Date().toISOString(),
-      ...serializeMetadata(meta),
+      ...(meta instanceof Error
+        ? { error: serializeLogValue(meta) }
+        : meta
+          ? { meta: serializeLogValue(meta) }
+          : {}),
     };
 
     const output = JSON.stringify(entry);
@@ -60,22 +66,4 @@ export function createLogger(minimumLevel: LogLevel = "info"): Logger {
       write("warn", message, meta);
     },
   };
-}
-
-function serializeMetadata(meta?: LogMetadata): Record<string, unknown> {
-  if (!meta) {
-    return {};
-  }
-
-  if (meta instanceof Error) {
-    return {
-      error: {
-        message: meta.message,
-        name: meta.name,
-        stack: meta.stack,
-      },
-    };
-  }
-
-  return { meta };
 }

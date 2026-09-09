@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createAdminApiToken } from "../src/admin/adminToken.js";
+import { createAdminApiToken } from "@fullparty/admin";
 
 describe("createAdminApiToken", () => {
   it("uses a configured token when provided", () => {

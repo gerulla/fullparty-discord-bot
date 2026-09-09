@@ -35,7 +35,6 @@ export class SqliteGuildSettingsStore implements GuildSettingsStore {
 
   public constructor(databasePath: string) {
     this.database = openSqliteDatabase(databasePath);
-    this.initialize();
   }
 
   public get(guildId: string): Promise<GuildSettings> {
@@ -121,53 +120,6 @@ export class SqliteGuildSettingsStore implements GuildSettingsStore {
     this.database.close();
   }
 
-  private initialize(): void {
-    this.database.exec(`
-      CREATE TABLE IF NOT EXISTS guild_settings (
-        guild_id TEXT PRIMARY KEY,
-        bot_log_channel_id TEXT,
-        bot_moderator_role_id TEXT,
-        linked_at TEXT,
-        run_announcement_channel_id TEXT,
-        upcoming_raider_role_id TEXT,
-        sync_discord_names_to_ff14 INTEGER NOT NULL DEFAULT 0
-          CHECK (sync_discord_names_to_ff14 IN (0, 1)),
-        updated_at TEXT
-      )
-    `);
-    this.addColumnIfMissing("guild_settings", "bot_moderator_role_id", "TEXT");
-    this.addColumnIfMissing("guild_settings", "linked_at", "TEXT");
-
-    this.database.exec(`
-      CREATE TABLE IF NOT EXISTS guild_role_template_overrides (
-        guild_id TEXT NOT NULL,
-        activity_id INTEGER NOT NULL,
-        activity_name TEXT NOT NULL,
-        role_id TEXT NOT NULL,
-        created_at TEXT,
-        updated_at TEXT,
-        PRIMARY KEY (guild_id, activity_id)
-      )
-    `);
-    this.recreateLegacyRoleTemplateOverrideTableIfNeeded();
-  }
-
-  private addColumnIfMissing(
-    tableName: string,
-    columnName: string,
-    definition: string,
-  ): void {
-    const rows = this.database.prepare(`PRAGMA table_info(${tableName})`).all() as {
-      name: string;
-    }[];
-
-    if (rows.some((row) => row.name === columnName)) {
-      return;
-    }
-
-    this.database.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
-  }
-
   private getRoleTemplateOverrides(guildId: string): GuildRoleTemplateOverride[] {
     const rows = this.database
       .prepare(
@@ -243,32 +195,6 @@ export class SqliteGuildSettingsStore implements GuildSettingsStore {
         override.updatedAt ?? updatedAt,
       );
     }
-  }
-
-  private recreateLegacyRoleTemplateOverrideTableIfNeeded(): void {
-    const rows = this.database
-      .prepare("PRAGMA table_info(guild_role_template_overrides)")
-      .all() as {
-      name: string;
-    }[];
-    const columnNames = new Set(rows.map((row) => row.name));
-
-    if (columnNames.has("activity_id")) {
-      return;
-    }
-
-    this.database.exec("DROP TABLE guild_role_template_overrides");
-    this.database.exec(`
-      CREATE TABLE guild_role_template_overrides (
-        guild_id TEXT NOT NULL,
-        activity_id INTEGER NOT NULL,
-        activity_name TEXT NOT NULL,
-        role_id TEXT NOT NULL,
-        created_at TEXT,
-        updated_at TEXT,
-        PRIMARY KEY (guild_id, activity_id)
-      )
-    `);
   }
 }
 

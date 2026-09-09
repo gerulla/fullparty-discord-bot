@@ -2,13 +2,13 @@ import { MessageFlags, SlashCommandBuilder, type Interaction } from "discord.js"
 import { describe, expect, it } from "vitest";
 
 import type { BotContext } from "../src/bot/context.js";
-import { createInteractionHandler } from "../src/interactions/handleInteraction.js";
 import type { ChatInputCommand } from "../src/commands/types.js";
 import { FullpartyApiClient, FullpartyApiError } from "../src/fullparty/client.js";
 import {
   createAutomationFailureDetailsCustomId,
   storeAutomationFailureDetails,
 } from "../src/guildAutomation/automationFailureDetails.js";
+import { createInteractionHandler } from "../src/interactions/handleInteraction.js";
 import { LatestPayloadStore } from "../src/payloads/latestPayloadStore.js";
 
 describe("createInteractionHandler", () => {

@@ -13,7 +13,10 @@ import {
   isAutomationFailureDetailsCustomId,
   replyWithAutomationFailureDetails,
 } from "../guildAutomation/automationFailureDetails.js";
+import { isExpectedDiscordFailure } from "../health/errorReporter.js";
 import { recordFailureSafely, serializeFailureError } from "../health/failureReporter.js";
+import { bestEffort } from "../lib/bestEffort.js";
+import { getDiscordApiErrorCode } from "../lib/errors.js";
 
 export function createInteractionHandler(
   context: BotContext,
@@ -91,6 +94,7 @@ async function handleChatInputCommand(
     });
     recordFailureSafely(context.failureReporter, context.logger, {
       action: interaction.commandName,
+      affectsHealth: !isExpectedDiscordFailure(error),
       details: {
         error: serializeFailureError(error),
       },
@@ -116,9 +120,9 @@ function recordCommandUsage(
     status: "succeeded" | "failed";
   },
 ): void {
-  void context.adminStore?.recordCommandUsage(input).catch((error: unknown) => {
-    context.logger.warn("Unable to record admin command telemetry.", { error });
-  });
+  bestEffort(context.logger, "Unable to record admin command telemetry.", () =>
+    context.adminStore?.recordCommandUsage(input),
+  );
 }
 
 async function handleComponentInteraction(
@@ -148,6 +152,7 @@ async function handleComponentInteraction(
     });
     recordFailureSafely(context.failureReporter, context.logger, {
       action: interaction.customId,
+      affectsHealth: !isExpectedDiscordFailure(error),
       details: {
         error: serializeFailureError(error),
       },
@@ -272,7 +277,9 @@ function getCommandErrorCode(error: unknown): string | undefined {
     return `fullparty_api_${String(error.status)}`;
   }
 
-  return error instanceof Error ? error.name : undefined;
+  return (
+    getDiscordApiErrorCode(error) ?? (error instanceof Error ? error.name : undefined)
+  );
 }
 
 function getErrorMessage(error: unknown): string {

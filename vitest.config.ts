@@ -9,6 +9,7 @@ export default defineConfig({
       reporter: ["text", "html"],
     },
     environment: "node",
+    include: ["tests/**/*.test.ts"],
     globals: false,
   },
 });

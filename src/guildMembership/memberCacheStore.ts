@@ -127,7 +127,6 @@ export class SqliteGuildMemberCacheStore implements GuildMemberCacheStore {
 
   public constructor(databasePath: string) {
     this.database = openSqliteDatabase(databasePath);
-    this.initialize();
   }
 
   public getSnapshot(
@@ -566,39 +565,6 @@ export class SqliteGuildMemberCacheStore implements GuildMemberCacheStore {
     this.database.close();
   }
 
-  private initialize(): void {
-    this.database.exec(`
-      CREATE TABLE IF NOT EXISTS guild_member_cache (
-        discord_guild_id TEXT NOT NULL,
-        discord_user_id TEXT NOT NULL,
-        refreshed_at TEXT NOT NULL,
-        seen_at TEXT NOT NULL,
-        source TEXT NOT NULL
-          CHECK (source IN ('full_refresh', 'member_event')),
-        PRIMARY KEY (discord_guild_id, discord_user_id)
-      )
-    `);
-    this.database.exec(`
-      CREATE INDEX IF NOT EXISTS guild_member_cache_guild_idx
-      ON guild_member_cache (discord_guild_id)
-    `);
-    this.database.exec(`
-      CREATE TABLE IF NOT EXISTS guild_member_cache_status (
-        discord_guild_id TEXT PRIMARY KEY,
-        member_count INTEGER,
-        cached_member_count INTEGER NOT NULL DEFAULT 0,
-        last_full_refresh_at TEXT,
-        next_refresh_after TEXT,
-        refresh_status TEXT NOT NULL DEFAULT 'missing'
-          CHECK (refresh_status IN ('missing', 'refreshing', 'fresh', 'failed')),
-        last_error TEXT,
-        obsolete_at TEXT,
-        updated_at TEXT NOT NULL
-      )
-    `);
-    this.addColumnIfMissing("guild_member_cache_status", "obsolete_at", "TEXT");
-  }
-
   private getStatusRow(discordGuildId: string): GuildMemberCacheStatusRow | undefined {
     return this.database
       .prepare(
@@ -708,22 +674,6 @@ export class SqliteGuildMemberCacheStore implements GuildMemberCacheStore {
         `,
       )
       .run(cachedMemberCount, discordGuildId, cachedMemberCount, updatedAtIso);
-  }
-
-  private addColumnIfMissing(
-    tableName: string,
-    columnName: string,
-    definition: string,
-  ): void {
-    const columns = this.database.prepare(`PRAGMA table_info(${tableName})`).all() as {
-      name: string;
-    }[];
-
-    if (columns.some((column) => column.name === columnName)) {
-      return;
-    }
-
-    this.database.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
   }
 }
 

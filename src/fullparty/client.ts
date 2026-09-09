@@ -1,15 +1,18 @@
+import { z } from "zod";
+
 export type FullpartyApiClientOptions = {
   apiToken?: string;
   baseUrl: string;
   fetcher?: typeof fetch;
+  timeoutMs?: number;
 };
 
-export type FullpartyHealthResponse = {
-  checkedAt?: string;
-  status?: string;
-  version?: string;
-  [key: string]: unknown;
-};
+const healthResponseSchema = z.looseObject({
+  checkedAt: z.string().optional(),
+  status: z.string().optional(),
+  version: z.string().optional(),
+});
+export type FullpartyHealthResponse = z.infer<typeof healthResponseSchema>;
 
 export type FullpartyDiscordUserApplicationsResponse = unknown;
 export type FullpartyDiscordGuildLinkRequest = {
@@ -50,21 +53,24 @@ export class FullpartyApiClient {
   private readonly apiToken: string | undefined;
   private readonly baseUrl: URL;
   private readonly fetcher: typeof fetch;
+  private readonly timeoutMs: number;
 
   public constructor(options: FullpartyApiClientOptions) {
     this.apiToken = options.apiToken;
     this.baseUrl = new URL(ensureTrailingSlash(options.baseUrl));
     this.fetcher = options.fetcher ?? fetch;
+    this.timeoutMs = options.timeoutMs ?? 15_000;
   }
 
-  public async health(): Promise<FullpartyHealthResponse> {
-    return this.request<FullpartyHealthResponse>("health");
+  public async health(): Promise<FullpartyHealthResponse | undefined> {
+    const response = await this.request("health");
+    return response === undefined ? undefined : healthResponseSchema.parse(response);
   }
 
   public async getDiscordUserApplications(
     discordId: string,
   ): Promise<FullpartyDiscordUserApplicationsResponse> {
-    return this.request<FullpartyDiscordUserApplicationsResponse>(
+    return this.request(
       `integrations/discord-users/${encodeURIComponent(discordId)}/applications`,
     );
   }
@@ -72,7 +78,7 @@ export class FullpartyApiClient {
   public async getDiscordUserUpcomingRuns(
     discordId: string,
   ): Promise<FullpartyDiscordUserUpcomingRunsResponse> {
-    return this.request<FullpartyDiscordUserUpcomingRunsResponse>(
+    return this.request(
       `integrations/discord-users/${encodeURIComponent(discordId)}/upcoming-runs`,
     );
   }
@@ -88,7 +94,7 @@ export class FullpartyApiClient {
       searchParams.set("limit", String(options.limit));
     }
 
-    return this.request<FullpartyDiscordGuildUpcomingRunsResponse>(
+    return this.request(
       searchParams.size > 0 ? `${path}?${searchParams.toString()}` : path,
     );
   }
@@ -97,7 +103,7 @@ export class FullpartyApiClient {
     discordGuildId: string,
     runId: number,
   ): Promise<FullpartyDiscordGuildRunRoleAssignmentResponse> {
-    return this.request<FullpartyDiscordGuildRunRoleAssignmentResponse>(
+    return this.request(
       `integrations/discord-guilds/${encodeURIComponent(discordGuildId)}/runs/${encodeURIComponent(String(runId))}/role-assignment`,
     );
   }
@@ -105,49 +111,40 @@ export class FullpartyApiClient {
   public async linkDiscordUser(
     request: FullpartyDiscordUserLinkRequest,
   ): Promise<FullpartyDiscordUserLinkResponse> {
-    return this.request<FullpartyDiscordUserLinkResponse>(
-      "integrations/discord-users/link",
-      {
-        body: JSON.stringify({
-          ...(request.avatarUrl ? { avatar_url: request.avatarUrl } : {}),
-          discord_user_id: request.discordUserId,
-          ...(request.globalName ? { global_name: request.globalName } : {}),
-          token: request.token,
-          ...(request.username ? { username: request.username } : {}),
-        }),
-        headers: {
-          "content-type": "application/json",
-        },
-        method: "POST",
+    return this.request("integrations/discord-users/link", {
+      body: JSON.stringify({
+        ...(request.avatarUrl ? { avatar_url: request.avatarUrl } : {}),
+        discord_user_id: request.discordUserId,
+        ...(request.globalName ? { global_name: request.globalName } : {}),
+        token: request.token,
+        ...(request.username ? { username: request.username } : {}),
+      }),
+      headers: {
+        "content-type": "application/json",
       },
-    );
+      method: "POST",
+    });
   }
 
   public async linkDiscordGuild(
     request: FullpartyDiscordGuildLinkRequest,
   ): Promise<FullpartyDiscordGuildLinkResponse> {
-    return this.request<FullpartyDiscordGuildLinkResponse>(
-      "integrations/discord-guilds/link",
-      {
-        body: JSON.stringify({
-          discord_guild_id: request.discordGuildId,
-          icon_url: request.iconUrl ?? null,
-          name: request.name,
-          permissions: request.permissions,
-          token: request.token,
-        }),
-        headers: {
-          "content-type": "application/json",
-        },
-        method: "POST",
+    return this.request("integrations/discord-guilds/link", {
+      body: JSON.stringify({
+        discord_guild_id: request.discordGuildId,
+        icon_url: request.iconUrl ?? null,
+        name: request.name,
+        permissions: request.permissions,
+        token: request.token,
+      }),
+      headers: {
+        "content-type": "application/json",
       },
-    );
+      method: "POST",
+    });
   }
 
-  private async request<TResponse>(
-    path: string,
-    init: RequestInit = {},
-  ): Promise<TResponse> {
+  private async request(path: string, init: RequestInit = {}): Promise<unknown> {
     const url = new URL(stripLeadingSlash(path), this.baseUrl);
     const headers = new Headers(init.headers);
 
@@ -157,38 +154,94 @@ export class FullpartyApiClient {
       headers.set("authorization", `Bearer ${this.apiToken}`);
     }
 
-    const response = await this.fetcher(url, {
-      ...init,
-      headers,
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => {
+      controller.abort();
+    }, this.timeoutMs);
+    try {
+      const response = await this.fetcher(url, {
+        ...init,
+        headers,
+        redirect: "error",
+        signal: controller.signal,
+      });
 
-    if (!response.ok) {
-      throw new FullpartyApiError(
-        `Fullparty API request failed with status ${String(response.status)}`,
-        response.status,
-        await readResponseBody(response),
+      if (!response.ok) {
+        throw new FullpartyApiError(
+          `Fullparty API request failed with status ${String(response.status)}`,
+          response.status,
+          await readResponseBody(response),
+        );
+      }
+
+      if (response.status === 204) {
+        return undefined;
+      }
+
+      const contentType = response.headers.get("content-type") ?? "";
+
+      if (!contentType.includes("application/json")) {
+        throw new FullpartyTransportError(
+          `Expected JSON from Fullparty API, received ${contentType}`,
+          "invalid_response",
+        );
+      }
+
+      return await response.json();
+    } catch (error) {
+      if (error instanceof FullpartyApiError || error instanceof FullpartyTransportError)
+        throw error;
+      throw new FullpartyTransportError(
+        controller.signal.aborted
+          ? "FullParty API request timed out."
+          : error instanceof SyntaxError
+            ? "FullParty API returned malformed JSON."
+            : "Unable to reach the FullParty API.",
+        controller.signal.aborted
+          ? "timeout"
+          : error instanceof SyntaxError
+            ? "invalid_response"
+            : "network_error",
+        { cause: error },
       );
+    } finally {
+      clearTimeout(timeout);
     }
-
-    if (response.status === 204) {
-      return undefined as TResponse;
-    }
-
-    const contentType = response.headers.get("content-type") ?? "";
-
-    if (!contentType.includes("application/json")) {
-      throw new Error(`Expected JSON from Fullparty API, received ${contentType}`);
-    }
-
-    return (await response.json()) as TResponse;
   }
 }
+
+export class FullpartyTransportError extends Error {
+  public constructor(
+    message: string,
+    public readonly code: "timeout" | "network_error" | "invalid_response",
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = "FullpartyTransportError";
+  }
+}
+
+export type FullpartyApi = Pick<
+  FullpartyApiClient,
+  | "health"
+  | "getDiscordUserApplications"
+  | "getDiscordUserUpcomingRuns"
+  | "getDiscordGuildUpcomingRuns"
+  | "getDiscordGuildRunRoleAssignment"
+  | "linkDiscordUser"
+  | "linkDiscordGuild"
+>;
 
 async function readResponseBody(response: Response): Promise<unknown> {
   const contentType = response.headers.get("content-type") ?? "";
 
   if (contentType.includes("application/json")) {
-    return response.json();
+    const text = await response.text();
+    try {
+      return JSON.parse(text) as unknown;
+    } catch {
+      return text;
+    }
   }
 
   return response.text();

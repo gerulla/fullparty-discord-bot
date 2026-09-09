@@ -37,7 +37,7 @@ export const fullpartyCommand: ChatInputCommand = {
 
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-    const health = await context.fullparty.health();
+    const health = (await context.fullparty.health()) ?? {};
 
     await interaction.editReply(formatHealthResponse(health));
   },

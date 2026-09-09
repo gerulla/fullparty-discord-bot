@@ -113,7 +113,7 @@ export type DiscordGuildSnapshotRunRoleTemplateOverride = {
 
 export async function createDiscordGuildSnapshot(
   client: Pick<Client, "guilds">,
-  context: BotContext,
+  context: Pick<BotContext, "guildSettings">,
   discordGuildId: string,
 ): Promise<DiscordGuildSnapshot> {
   const guild = await client.guilds.fetch(discordGuildId);

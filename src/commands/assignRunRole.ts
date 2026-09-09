@@ -1,16 +1,17 @@
 import {
   ApplicationIntegrationType,
   InteractionContextType,
-  type Client,
-  type InteractionEditReplyOptions,
   MessageFlags,
   SlashCommandBuilder,
+  type Client,
+  type InteractionEditReplyOptions,
 } from "discord.js";
 
-import { captureFullpartyCommandPayload } from "../fullparty/commandPayloadCapture.js";
 import { FullpartyApiError } from "../fullparty/client.js";
+import { captureFullpartyCommandPayload } from "../fullparty/commandPayloadCapture.js";
 import { extractGuildRunReminderData } from "../fullparty/guildRunAssignmentPayload.js";
-import { processGuildRunRoleAssignment } from "../http/server.js";
+import { GuildAutomationService } from "../guildAutomation/automationService.js";
+import type { RoleAssignmentResult } from "../guildAutomation/results.js";
 import { formatDiscordDateTime } from "../lib/discordTimestamps.js";
 import { requireGuildBotModerator } from "./guildCommandAccess.js";
 import type { ChatInputCommand } from "./types.js";
@@ -184,16 +185,9 @@ export async function runGuildRunRoleAssignment({
     return;
   }
 
-  const result = await processGuildRunRoleAssignment(
-    {
-      client,
-      context,
-    },
-    data,
-    {
-      dryRun: debugBypassWindow,
-    },
-  );
+  const result = await new GuildAutomationService({ client, context }).assignRole(data, {
+    dryRun: debugBypassWindow,
+  });
 
   await responder.editReply({
     content: createAssignmentResultMessage(data.run_id, result, data, {
@@ -253,7 +247,7 @@ function getRunAssignmentWindowError(startsAt: string | undefined): string | und
 
 function createAssignmentResultMessage(
   runId: number,
-  result: Record<string, unknown>,
+  result: RoleAssignmentResult,
   data: Record<string, unknown>,
   options: { debugBypassWindow?: boolean | undefined } = {},
 ): string {

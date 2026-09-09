@@ -46,6 +46,19 @@ npm ci
 npm run build
 ```
 
+The root install/build commands include the `admin/` npm workspace. Keep the
+whole repository on the VPS, including `admin/package.json`, `admin/dist/`, and
+`admin/ui/dist/` after building. Do not deploy only the root `dist/` directory.
+
+The dashboard still runs in the bot process at `https://bot.fullparty.gg/admin/`;
+the admin API stays at `/admin/api/*`. No second service, public port, or Vite
+process is needed in production. Existing nginx and systemd settings still apply.
+Log in with the configured `ADMIN_API_TOKEN`, or get the restart-generated token
+by sending `!token` to the bot as the configured owner.
+
+SQLite migrations are automatic on startup. Back up the existing database before
+upgrading; there is no manual SQL step and no need to reset bot data.
+
 ## 3. Create Production Environment File
 
 Create `.env`:

@@ -1,7 +1,8 @@
 import { Client, Events, GatewayIntentBits, Partials, type Message } from "discord.js";
 
-import type { BotContext } from "./context.js";
+import { runReportedTask } from "../health/errorReporter.js";
 import { createInteractionHandler } from "../interactions/handleInteraction.js";
+import type { BotContext } from "./context.js";
 
 export function createBotClient(context: BotContext): Client {
   const client = new Client({
@@ -20,51 +21,91 @@ export function createBotClient(context: BotContext): Client {
     });
   });
 
-  client.on(Events.InteractionCreate, createInteractionHandler(context));
+  const handleInteraction = createInteractionHandler(context);
+  client.on(Events.InteractionCreate, (interaction) => {
+    void runReportedTask(
+      context,
+      {
+        source: "discord_api",
+        action: "interaction_response",
+        discordGuildId: interaction.guildId ?? undefined,
+        discordUserId: interaction.user.id,
+      },
+      () => handleInteraction(interaction),
+    );
+  });
   client.on(Events.MessageCreate, (message) => {
-    void handleMessageCreate(message, context);
+    void runReportedTask(
+      context,
+      {
+        source: "discord_api",
+        action: "direct_message_response",
+        discordUserId: message.author.id,
+      },
+      () => handleMessageCreate(message, context),
+    );
   });
   client.on(Events.GuildMemberAdd, (member) => {
     if (member.user.bot) {
       return;
     }
 
-    void context.guildMemberCache
-      ?.markMemberSeen(member.guild.id, member.id)
-      .catch((error: unknown) => {
-        context.logger.warn("Unable to cache guild member join.", {
-          discordGuildId: member.guild.id,
-          discordUserId: member.id,
-          error,
-        });
-      });
+    void runReportedTask(
+      context,
+      {
+        source: "guild_membership",
+        action: "member_joined",
+        discordGuildId: member.guild.id,
+        discordUserId: member.id,
+      },
+      () => context.guildMemberCache?.markMemberSeen(member.guild.id, member.id),
+    );
   });
   client.on(Events.GuildMemberRemove, (member) => {
-    void context.guildMemberCache
-      ?.markMemberRemoved(member.guild.id, member.id)
-      .catch((error: unknown) => {
-        context.logger.warn("Unable to cache guild member removal.", {
-          discordGuildId: member.guild.id,
-          discordUserId: member.id,
-          error,
-        });
-      });
+    void runReportedTask(
+      context,
+      {
+        source: "guild_membership",
+        action: "member_removed",
+        discordGuildId: member.guild.id,
+        discordUserId: member.id,
+      },
+      () => context.guildMemberCache?.markMemberRemoved(member.guild.id, member.id),
+    );
   });
   client.on(Events.GuildCreate, (guild) => {
-    void context.guildMemberCacheScheduler?.enqueueRefresh(guild.id, "guild_joined");
+    void runReportedTask(
+      context,
+      { source: "guild_membership", action: "guild_joined", discordGuildId: guild.id },
+      () => context.guildMemberCacheScheduler?.enqueueRefresh(guild.id, "guild_joined"),
+    );
   });
   client.on(Events.GuildDelete, (guild) => {
-    void context.guildMemberCache?.markGuildObsolete(guild.id).catch((error: unknown) => {
-      context.logger.warn(
-        "Unable to mark guild member cache obsolete after guild removal.",
-        {
-          discordGuildId: guild.id,
-          error,
-        },
-      );
-    });
+    void runReportedTask(
+      context,
+      { source: "guild_membership", action: "guild_removed", discordGuildId: guild.id },
+      () => context.guildMemberCache?.markGuildObsolete(guild.id),
+    );
   });
 
+  client.on(Events.Error, (error) => {
+    void runReportedTask(
+      context,
+      { source: "discord_api", action: "client_error" },
+      () => {
+        throw error;
+      },
+    );
+  });
+  client.on(Events.ShardError, (error) => {
+    void runReportedTask(
+      context,
+      { source: "discord_api", action: "gateway_error" },
+      () => {
+        throw error;
+      },
+    );
+  });
   return client;
 }
 

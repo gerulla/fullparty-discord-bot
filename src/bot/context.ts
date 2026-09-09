@@ -1,8 +1,8 @@
-import type { FullpartyApiClient } from "../fullparty/client.js";
-import type { AdminStore } from "../admin/adminStore.js";
+import type { AdminStore } from "@fullparty/admin";
 import type { UserDmRateLimiter } from "../dm/userDmRateLimiter.js";
-import type { GuildRunRoleStore } from "../guildAutomation/runRoleStore.js";
+import type { FullpartyApi } from "../fullparty/client.js";
 import type { GuildRunReminderQueue } from "../guildAutomation/runReminderQueue.js";
+import type { GuildRunRoleStore } from "../guildAutomation/runRoleStore.js";
 import type { GuildMemberCacheScheduler } from "../guildMembership/memberCacheScheduler.js";
 import type { GuildMemberCacheStore } from "../guildMembership/memberCacheStore.js";
 import type { GuildSettingsStore } from "../guildSettings/store.js";
@@ -15,7 +15,7 @@ export type BotContext = {
   adminApiToken?: string | undefined;
   adminStore?: AdminStore | undefined;
   failureReporter?: FailureReporter | undefined;
-  fullparty: FullpartyApiClient;
+  fullparty: FullpartyApi;
   fullpartyWebBaseUrl: string;
   guildMemberCache?: GuildMemberCacheStore | undefined;
   guildMemberCacheScheduler?: GuildMemberCacheScheduler | undefined;

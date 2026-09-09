@@ -1,6 +1,9 @@
 node_modules/
 admin-ui/dist/
 admin-ui/node_modules/
+admin/dist/
+admin/ui/dist/
+admin/node_modules/
 dist/
 coverage/
 data/

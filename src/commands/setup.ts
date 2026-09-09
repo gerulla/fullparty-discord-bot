@@ -12,8 +12,7 @@ import {
   SlashCommandBuilder,
 } from "discord.js";
 
-import type { GuildSettings } from "../guildSettings/types.js";
-import type { GuildSettingsPatch } from "../guildSettings/types.js";
+import type { GuildSettings, GuildSettingsPatch } from "../guildSettings/types.js";
 import type { ChatInputCommand, SetupComponentInteraction } from "./types.js";
 
 const setupCustomIdPrefix = "setup";

@@ -4,6 +4,7 @@ import type { DatabaseSync } from "node:sqlite";
 
 import { openSqliteDatabase } from "../database/sqlite.js";
 import type { Logger } from "../lib/logger.js";
+import { serializeLogValue } from "../lib/serialization.js";
 
 export type HealthStatus = "healthy" | "degraded" | "unhealthy";
 export type BotFailureSeverity = "warn" | "error";
@@ -20,6 +21,8 @@ export type BotFailureInput = {
   runId?: number | undefined;
   severity: BotFailureSeverity;
   source:
+    | "admin_api"
+    | "runtime"
     | "command"
     | "component"
     | "discord_api"
@@ -91,7 +94,6 @@ export class SqliteFailureReporter implements FailureReporter {
   public constructor(options: FailureReporterOptions) {
     this.database = openSqliteDatabase(options.databasePath);
     this.logFilePath = options.logFilePath;
-    this.initialize();
   }
 
   public record(input: BotFailureInput): Promise<BotFailureRecord> {
@@ -186,56 +188,6 @@ export class SqliteFailureReporter implements FailureReporter {
     this.database.close();
   }
 
-  private initialize(): void {
-    this.database.exec(`
-      CREATE TABLE IF NOT EXISTS bot_failures (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        occurred_at TEXT NOT NULL,
-        affects_health INTEGER NOT NULL DEFAULT 1
-          CHECK (affects_health IN (0, 1)),
-        severity TEXT NOT NULL CHECK (severity IN ('warn', 'error')),
-        source TEXT NOT NULL,
-        action TEXT NOT NULL,
-        message TEXT NOT NULL,
-        error_code TEXT,
-        event_type TEXT,
-        discord_guild_id TEXT,
-        discord_user_id TEXT,
-        run_id INTEGER,
-        details_json TEXT
-      )
-    `);
-    this.addColumnIfMissing(
-      "bot_failures",
-      "affects_health",
-      "INTEGER NOT NULL DEFAULT 1 CHECK (affects_health IN (0, 1))",
-    );
-    this.database.exec(`
-      CREATE INDEX IF NOT EXISTS bot_failures_occurred_at_idx
-      ON bot_failures (occurred_at)
-    `);
-    this.database.exec(`
-      CREATE INDEX IF NOT EXISTS bot_failures_source_occurred_at_idx
-      ON bot_failures (source, occurred_at)
-    `);
-  }
-
-  private addColumnIfMissing(
-    tableName: string,
-    columnName: string,
-    definition: string,
-  ): void {
-    const rows = this.database.prepare(`PRAGMA table_info(${tableName})`).all() as {
-      name: string;
-    }[];
-
-    if (rows.some((row) => row.name === columnName)) {
-      return;
-    }
-
-    this.database.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
-  }
-
   private getCountsSince(since: string): FailureCountRow {
     return this.database
       .prepare(
@@ -290,23 +242,20 @@ export function recordFailureSafely(
     return;
   }
 
-  void reporter.record(input).catch((error: unknown) => {
+  try {
+    void reporter.record(input).catch((error: unknown) => {
+      logger.error("Unable to record bot failure.", { error });
+    });
+  } catch (error) {
     logger.error("Unable to record bot failure.", { error });
-  });
+  }
 }
 
 export function serializeFailureError(error: unknown): Record<string, unknown> {
-  if (error instanceof Error) {
-    return {
-      message: error.message,
-      name: error.name,
-      stack: error.stack,
-    };
-  }
-
-  return {
-    value: error,
-  };
+  const value = serializeLogValue(error);
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? { ...value }
+    : { value };
 }
 
 function getFailureStatus(

@@ -1,5 +1,7 @@
 coverage
 dist
 admin-ui/dist
+admin/dist
+admin/ui/dist
 node_modules
 package-lock.json

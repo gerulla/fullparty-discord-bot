@@ -5,8 +5,8 @@ import {
   SlashCommandBuilder,
 } from "discord.js";
 
-import { captureFullpartyCommandPayload } from "../fullparty/commandPayloadCapture.js";
 import { FullpartyApiError } from "../fullparty/client.js";
+import { captureFullpartyCommandPayload } from "../fullparty/commandPayloadCapture.js";
 import { recordFailureSafely, serializeFailureError } from "../health/failureReporter.js";
 import type { ChatInputCommand } from "./types.js";
 

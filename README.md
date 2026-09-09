@@ -10,6 +10,36 @@ Discord.js management bot for Fullparty.gg.
 - ESLint and Prettier
 - Zod-backed environment validation
 - SQLite for local bot state
+- Vue 3 / Vite admin dashboard in the `@fullparty/admin` npm workspace
+
+## Project layout
+
+```text
+src/
+  application/       # startup, dependency composition, shutdown
+  bot/               # Discord client and event wiring
+  commands/          # slash commands
+  http/              # routing, signatures, payload validation, responses
+  guildIntegration/  # website settings, snapshots, unlink handling
+  guildAutomation/   # role/nickname services, queue, permissions, presentation
+  guildMembership/   # member cache and scheduler
+  notifications/     # formatting registry, focused formatters, JSON text catalog
+  dm/                # DM delivery, durable queue, per-user cooldown
+  health/            # health checks and failure reporting
+  database/          # versioned SQLite migrations
+  admin/             # bot-to-admin adapters and telemetry recording only
+admin/
+  src/server/        # admin HTTP handlers and telemetry repositories
+  src/shared/        # API contracts and runtime validation schemas
+  ui/src/            # Vue pages, composables, API client, chart helpers
+  tests/             # admin-specific tests
+tests/               # bot and integration tests
+```
+
+Services receive their dependencies explicitly; repositories own persistence;
+formatters own presentation. The admin package does not import bot implementation
+files. The bot supplies runtime information through the admin package's ports.
+See [admin/README.md](admin/README.md) for the workspace and API boundary details.
 
 ## Setup
 
@@ -29,13 +59,36 @@ npm run dev:watch        # start the bot with tsx watch
 npm run commands:deploy  # register slash commands with Discord
 npm run commands:deploy:global # force global command registration for user installs/DMs
 npm run commands:deploy:guild  # force guild-scoped command registration for quick testing
-npm run typecheck        # TypeScript validation
+npm run typecheck        # strict TypeScript, including Vue templates
 npm run lint             # ESLint
-npm test                 # Vitest
+npm test                 # bot, integration, and admin tests
 npm run coverage         # Vitest coverage report
-npm run build            # compile to dist
+npm run build            # build bot + admin API + Vue dashboard
+npm run admin:dev        # Vite dashboard, API proxy to localhost:3000
 npm start                # run compiled bot
 ```
+
+Run these commands from the repository root. `npm ci` installs both workspaces.
+Production still uses one bot process: `npm start` serves `/events`, `/health`,
+`/admin/api/*`, and the built dashboard at `/admin/` on the existing HTTP port.
+
+## Reliability and state
+
+- API requests have a 15-second deadline; HTTP, transport, and malformed-response
+  failures remain distinguishable. Browser requests are cancelled on logout.
+- Error reporting retains nested error messages, codes, causes, and stacks.
+  Structured secret fields are redacted. Expected Discord permission/access
+  failures are recorded without degrading overall health.
+- Startup failures and shutdown close resources in reverse order, continuing
+  cleanup if one resource fails. Active workers finish before their stores close.
+- SQLite migrations run automatically. Back up the database before deployment;
+  do not delete it for this upgrade. Old incompatible template-override tables
+  are retained with a `_legacy` suffix for recovery.
+- Pending notification DMs and cooldown timestamps survive restarts. An abrupt
+  crash between Discord accepting a DM and the local completion write can still
+  cause a repeat delivery; this is not exactly-once delivery. Failed DM jobs are
+  terminal, not retried forever. Completed/failed queue history is pruned after
+  30 days during normal queue activity/startup.
 
 ## Fullparty integration endpoint
 

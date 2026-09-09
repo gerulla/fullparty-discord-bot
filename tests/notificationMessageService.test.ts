@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
 import type { APIEmbed, MessageCreateOptions } from "discord.js";
+import { describe, expect, it } from "vitest";
 
 import {
   getSupportedNotificationTypes,

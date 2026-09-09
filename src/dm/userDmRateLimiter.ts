@@ -4,8 +4,12 @@ import {
   type FailureReporter,
 } from "../health/failureReporter.js";
 import type { Logger } from "../lib/logger.js";
+import type { DmDeliveryJob } from "./deliveryTypes.js";
+import type { DmQueueStore } from "./queueStore.js";
 
 export type UserDmRateLimiterOptions = {
+  store?: DmQueueStore;
+  startPaused?: boolean;
   failureReporter?: FailureReporter | undefined;
   limit?: number | undefined;
   logger: Logger;
@@ -51,21 +55,53 @@ export class UserDmRateLimiter {
   private readonly timers = new Map<string, NodeJS.Timeout>();
   private readonly windowMs: number;
   private readonly processingUserIds = new Set<string>();
+  private readonly store: DmQueueStore | undefined;
+  private stopped = false;
+  private restored = false;
+  private paused: boolean;
 
   public constructor(options: UserDmRateLimiterOptions) {
     this.failureReporter = options.failureReporter;
     this.limit = Math.max(1, Math.floor(options.limit ?? defaultLimit));
     this.logger = options.logger;
     this.windowMs = Math.max(1000, Math.floor(options.windowMs ?? defaultWindowMs));
+    this.store = options.store;
+    this.paused = options.startPaused ?? false;
+    for (const [id, times] of this.store?.sentTimes(this.windowMs) ?? [])
+      this.sentAtByUser.set(id, times);
+  }
+
+  public restore(
+    processor: (job: DmDeliveryJob) => Promise<Record<string, unknown>>,
+  ): void {
+    if (this.restored) return;
+    this.restored = true;
+    for (const job of this.store?.pending() ?? []) {
+      this.getQueue(job.payload.discordUserId).push({
+        enqueuedAt: job.queuedAt,
+        operation: this.persistedOperation(job.id, () => processor(job.payload)),
+      });
+      this.scheduleDrain(job.payload.discordUserId);
+    }
+  }
+
+  public resume(): void {
+    this.paused = false;
+    for (const id of this.queues.keys()) this.scheduleDrain(id);
   }
 
   public async send<T extends Record<string, unknown>>(
     discordUserId: string,
     operation: () => Promise<T>,
+    payload?: DmDeliveryJob,
   ): Promise<UserDmRateLimiterResult<T>> {
+    if (this.stopped) throw new Error("DM delivery is shutting down.");
+    const jobId = payload ? this.store?.enqueue(payload) : undefined;
+    if (jobId !== undefined) operation = this.persistedOperation(jobId, operation);
     const queue = this.queues.get(discordUserId);
 
     if (
+      !this.paused &&
       (!queue || queue.length === 0) &&
       !this.processingUserIds.has(discordUserId) &&
       this.getAvailableDelay(discordUserId) === 0
@@ -97,11 +133,33 @@ export class UserDmRateLimiter {
   }
 
   public stop(): void {
+    this.stopped = true;
     for (const timer of this.timers.values()) {
       clearTimeout(timer);
     }
 
     this.timers.clear();
+  }
+
+  public async waitForIdle(): Promise<void> {
+    while (this.processingUserIds.size > 0)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+
+  private persistedOperation<T extends Record<string, unknown>>(
+    id: number,
+    operation: () => Promise<T>,
+  ): () => Promise<T> {
+    return async () => {
+      try {
+        const result = await operation();
+        this.store?.complete(id);
+        return result;
+      } catch (error) {
+        this.store?.complete(id, getErrorMessage(error));
+        throw error;
+      }
+    };
   }
 
   public getQueueSnapshot(): UserDmQueueSnapshot[] {
@@ -147,7 +205,13 @@ export class UserDmRateLimiter {
   ) {
     const queue = this.queues.get(discordUserId);
 
-    if (!queue || queue.length === 0 || this.timers.has(discordUserId)) {
+    if (
+      this.stopped ||
+      this.paused ||
+      !queue ||
+      queue.length === 0 ||
+      this.timers.has(discordUserId)
+    ) {
       return;
     }
 
@@ -164,6 +228,7 @@ export class UserDmRateLimiter {
   }
 
   private async drain(discordUserId: string): Promise<void> {
+    if (this.stopped) return;
     if (this.processingUserIds.has(discordUserId)) {
       return;
     }
@@ -251,6 +316,7 @@ export class UserDmRateLimiter {
 
     sentAt.push(Date.now());
     this.sentAtByUser.set(discordUserId, sentAt);
+    this.store?.recordSent(discordUserId, Date.now(), this.windowMs);
   }
 
   private pruneSentAt(discordUserId: string): number[] {

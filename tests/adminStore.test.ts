@@ -2,8 +2,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { openSqliteDatabase } from "../src/database/sqlite.js";
 
-import { SqliteAdminStore } from "../src/admin/adminStore.js";
+import { SqliteAdminStore } from "@fullparty/admin";
 
 describe("SqliteAdminStore", () => {
   const stores: SqliteAdminStore[] = [];
@@ -333,7 +334,7 @@ describe("SqliteAdminStore", () => {
   async function createStore(): Promise<SqliteAdminStore> {
     const directory = await mkdtemp(join(tmpdir(), "fullparty-admin-"));
     const databasePath = join(directory, "admin.sqlite");
-    const store = new SqliteAdminStore(databasePath);
+    const store = new SqliteAdminStore(openSqliteDatabase(databasePath));
 
     tempDirs.push(directory);
     stores.push(store);

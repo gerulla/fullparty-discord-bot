@@ -1,16 +1,12 @@
 import { timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
-
-import type { Client } from "discord.js";
-
-import type { BotContext } from "../bot/context.js";
-
-export type AdminApiOptions = {
-  adminApiToken?: string | undefined;
-  client: Client;
-  context: BotContext;
-  createHealth: () => Promise<Record<string, unknown>>;
-};
+import type {
+  HealthIssue as AdminHealthIssue,
+  DashboardResponse,
+  UserDmQueueSummary,
+} from "../shared/contracts.js";
+import type { AdminApiOptions } from "./ports.js";
+export type { AdminApiOptions } from "./ports.js";
 
 export async function handleAdminApiRequest(
   request: IncomingMessage,
@@ -30,7 +26,7 @@ export async function handleAdminApiRequest(
     return true;
   }
 
-  if (!options.context.adminStore || !options.adminApiToken) {
+  if (!options.store || !options.adminApiToken) {
     sendJson(response, 503, {
       error: "admin_api_disabled",
       message: "Admin API is not configured.",
@@ -46,11 +42,18 @@ export async function handleAdminApiRequest(
     return true;
   }
 
-  await syncLiveGuildRuntime(options);
+  if (
+    request.method === "GET" &&
+    ["/admin/api/summary", "/admin/api/metrics", "/admin/api/guilds"].includes(
+      url.pathname,
+    )
+  ) {
+    await options.refreshGuildRuntime();
+  }
 
   if (request.method === "POST") {
     if (url.pathname === "/admin/api/guild-member-cache/refresh") {
-      if (!options.context.guildMemberCacheScheduler) {
+      if (!options.refreshMemberCache) {
         sendJson(response, 503, {
           error: "guild_member_cache_scheduler_unavailable",
           message: "Guild member cache scheduler is not configured.",
@@ -58,8 +61,7 @@ export async function handleAdminApiRequest(
         return true;
       }
 
-      const result =
-        await options.context.guildMemberCacheScheduler.refreshLinkedGuildsFromDashboard();
+      const result = await options.refreshMemberCache();
 
       sendJson(response, 202, {
         data: result,
@@ -75,7 +77,7 @@ export async function handleAdminApiRequest(
   }
 
   const limit = getLimit(url);
-  const store = options.context.adminStore;
+  const store = options.store;
 
   if (url.pathname === "/admin/api/summary") {
     const [health, telemetry, guildAutomationQueue] = await Promise.all([
@@ -88,7 +90,7 @@ export async function handleAdminApiRequest(
       health,
       queue: {
         guildAutomation: guildAutomationQueue,
-        userDms: createUserDmQueueSummary(options.context),
+        userDms: createUserDmQueueSummary(options),
       },
       telemetry,
     });
@@ -105,7 +107,7 @@ export async function handleAdminApiRequest(
   if (url.pathname === "/admin/api/dms") {
     sendJson(response, 200, {
       data: await store.getDmDeliveries(limit),
-      queues: options.context.userDmRateLimiter?.getQueueSnapshot() ?? [],
+      queues: options.getUserDmQueues(),
     });
     return true;
   }
@@ -149,12 +151,12 @@ export async function handleAdminApiRequest(
     const logLimit = getLogLimit(url);
 
     sendJson(response, 200, {
-      data: options.context.runtimeLogs?.getEntries(logLimit) ?? [],
+      data: options.runtimeLogs?.getEntries(logLimit) ?? [],
       meta: {
-        ...options.context.runtimeLogs?.getPersistenceInfo(),
+        ...options.runtimeLogs?.getPersistenceInfo(),
         limit: logLimit,
-        maxLines: options.context.runtimeLogs?.getMaxLines() ?? 10_000,
-        totalBuffered: options.context.runtimeLogs?.getTotalBuffered() ?? 0,
+        maxLines: options.runtimeLogs?.getMaxLines() ?? 10_000,
+        totalBuffered: options.runtimeLogs?.getTotalBuffered() ?? 0,
       },
     });
     return true;
@@ -188,10 +190,10 @@ export async function handleAdminApiRequest(
         metrics,
         queue: {
           guildAutomation: guildAutomationQueue,
-          userDms: createUserDmQueueSummary(options.context),
+          userDms: createUserDmQueueSummary(options),
         },
       },
-    });
+    } satisfies DashboardResponse);
     return true;
   }
 
@@ -201,7 +203,7 @@ export async function handleAdminApiRequest(
     sendJson(response, 200, {
       data: {
         guildAutomation: guildAutomationQueue,
-        userDms: createUserDmQueueSummary(options.context),
+        userDms: createUserDmQueueSummary(options),
       },
     });
     return true;
@@ -213,15 +215,6 @@ export async function handleAdminApiRequest(
   });
   return true;
 }
-
-type AdminHealthIssue = {
-  check: string;
-  details: Record<string, unknown>;
-  occurredAt: string | null;
-  reason: string;
-  severity: "info" | "warn" | "error";
-  status: string;
-};
 
 function createHealthIssues(health: Record<string, unknown>): AdminHealthIssue[] {
   const checks = isRecord(health.checks) ? health.checks : {};
@@ -347,33 +340,8 @@ function getHealthIssueReason(
   return `${humanizeKey(checkName)} is ${status}.`;
 }
 
-async function syncLiveGuildRuntime(options: AdminApiOptions): Promise<void> {
-  const store = options.context.adminStore;
-
-  if (!store) {
-    return;
-  }
-
-  const guilds = [...options.client.guilds.cache.values()];
-
-  await Promise.all(
-    guilds.map(async (guild) => {
-      const settings = await options.context.guildSettings.get(guild.id);
-
-      await store.recordGuildRuntime({
-        botPermissions: guild.members.me?.permissions.bitfield.toString() ?? null,
-        discordGuildId: guild.id,
-        linkedAt: settings.linkedAt ?? null,
-        memberCount: typeof guild.memberCount === "number" ? guild.memberCount : null,
-        name: guild.name,
-        unavailable: !guild.available,
-      });
-    }),
-  );
-}
-
-function createUserDmQueueSummary(context: BotContext): Record<string, unknown> {
-  const queues = context.userDmRateLimiter?.getQueueSnapshot() ?? [];
+function createUserDmQueueSummary(options: AdminApiOptions): UserDmQueueSummary {
+  const queues = options.getUserDmQueues();
 
   return {
     cooldownUsers: queues.filter(

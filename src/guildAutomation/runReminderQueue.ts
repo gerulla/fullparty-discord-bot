@@ -10,9 +10,9 @@ import type { Logger } from "../lib/logger.js";
 import {
   type GuildAutomationJobData,
   type GuildAutomationJobKind,
-  guildRunReminderDataSchema,
   guildRunCompletedDataSchema,
   type GuildRunReminderData,
+  guildRunReminderDataSchema,
 } from "./runReminderTypes.js";
 
 export type GuildRunReminderQueueEnqueueResult = {
@@ -108,7 +108,6 @@ export class SqliteGuildRunReminderQueue implements GuildRunReminderQueue {
     this.maxAttempts = Math.max(1, Math.floor(options.maxAttempts ?? 3));
     this.pollIntervalMs = Math.max(250, Math.floor(options.pollIntervalMs ?? 1000));
     this.processor = options.processor;
-    this.initialize();
   }
 
   public start(): void {
@@ -266,57 +265,6 @@ export class SqliteGuildRunReminderQueue implements GuildRunReminderQueue {
       stuckProcessing: stuckProcessing.count,
       windowSeconds,
     });
-  }
-
-  private initialize(): void {
-    this.database.exec(`
-      CREATE TABLE IF NOT EXISTS guild_run_reminder_jobs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        dedupe_key TEXT NOT NULL UNIQUE,
-        discord_guild_id TEXT NOT NULL,
-        job_kind TEXT NOT NULL DEFAULT 'run_reminder'
-          CHECK (job_kind IN ('run_reminder', 'run_completed')),
-        run_id INTEGER NOT NULL,
-        reminder_type TEXT,
-        type TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'queued'
-          CHECK (status IN ('queued', 'processing', 'completed', 'failed')),
-        payload_json TEXT NOT NULL,
-        result_json TEXT,
-        attempts INTEGER NOT NULL DEFAULT 0,
-        last_error TEXT,
-        available_at TEXT NOT NULL,
-        locked_at TEXT,
-        completed_at TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      )
-    `);
-    this.addColumnIfMissing(
-      "guild_run_reminder_jobs",
-      "job_kind",
-      "TEXT NOT NULL DEFAULT 'run_reminder'",
-    );
-    this.database.exec(`
-      CREATE INDEX IF NOT EXISTS guild_run_reminder_jobs_status_available_idx
-      ON guild_run_reminder_jobs (status, available_at, created_at)
-    `);
-  }
-
-  private addColumnIfMissing(
-    tableName: string,
-    columnName: string,
-    definition: string,
-  ): void {
-    const rows = this.database.prepare(`PRAGMA table_info(${tableName})`).all() as {
-      name: string;
-    }[];
-
-    if (rows.some((row) => row.name === columnName)) {
-      return;
-    }
-
-    this.database.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
   }
 
   private recoverProcessingJobs(): void {

@@ -11,8 +11,8 @@ import { describe, expect, it } from "vitest";
 
 import type { BotContext } from "../src/bot/context.js";
 import { setupCommand } from "../src/commands/setup.js";
-import type { GuildSettings, GuildSettingsPatch } from "../src/guildSettings/types.js";
 import { FullpartyApiClient } from "../src/fullparty/client.js";
+import type { GuildSettings, GuildSettingsPatch } from "../src/guildSettings/types.js";
 import { LatestPayloadStore } from "../src/payloads/latestPayloadStore.js";
 
 describe("setupCommand", () => {

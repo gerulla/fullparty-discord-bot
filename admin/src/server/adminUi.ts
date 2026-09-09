@@ -3,9 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const defaultAdminUiRoot = fileURLToPath(
-  new URL("../../admin-ui/dist/", import.meta.url),
-);
+const defaultAdminUiRoot = fileURLToPath(new URL("../../ui/dist/", import.meta.url));
 
 export type AdminUiOptions = {
   adminUiRoot?: string | undefined;
@@ -45,6 +43,10 @@ export async function handleAdminUiRequest(
   const indexPath = resolve(root, "index.html");
   const requestedFile = await isReadableFile(requestedFilePath);
   const indexFile = await isReadableFile(indexPath);
+  if (!requestedFile && indexFile && extname(requestedFilePath)) {
+    sendResponse(response, 404, "Admin asset not found.", "text/plain");
+    return true;
+  }
   const filePath = requestedFile ?? indexFile;
 
   if (!filePath) {
