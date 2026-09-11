@@ -6,6 +6,7 @@ import { clearRoleCommand } from "./clearRole.js";
 import { faqCommand } from "./faq.js";
 import { guildRunsCommand } from "./guildRuns.js";
 import { helpCommand } from "./help.js";
+import { infoCommand } from "./info.js";
 import { linkCommand } from "./link.js";
 import { payloadCommand } from "./payload.js";
 import { pingCommand } from "./ping.js";
@@ -25,6 +26,7 @@ export const commands = [
   faqCommand,
   guildRunsCommand,
   helpCommand,
+  infoCommand,
   linkCommand,
   pingCommand,
   postRunsCommand,

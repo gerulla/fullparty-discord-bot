@@ -3,6 +3,7 @@ import { automationQueue } from "./migrations/automationQueue.js";
 import { dmQueue } from "./migrations/dmQueue.js";
 import { failures } from "./migrations/failures.js";
 import { guildSettings } from "./migrations/guildSettings.js";
+import { guildSchedule } from "./migrations/guildSchedule.js";
 import { memberCache } from "./migrations/memberCache.js";
 import { runRoles } from "./migrations/runRoles.js";
 
@@ -13,6 +14,7 @@ const migrations = [
   memberCache,
   failures,
   dmQueue,
+  guildSchedule,
 ];
 
 export function migrateBotDatabase(database: DatabaseSync): void {

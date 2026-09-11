@@ -1312,9 +1312,10 @@ describe("command execution", () => {
     const roleAdds: string[] = [];
     const createdRoles: string[] = [];
     const startsAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-    const expectedRunRoleName = `FullParty: AAC Cruiserweight M1 (Savage) ${formatUtcHourMinute(startsAt)} UTC`;
+    const expectedRunRoleName = `Run: AAC Cruiserweight M1 (Savage) ${formatUtcHourMinute(startsAt)} UTC`;
     const roleAssignmentResponse = {
       data: {
+        activity_type: { name: { en: "AAC Cruiserweight M1 (Savage)" } },
         discord_guild: {
           icon_url: null,
           id: "1379217636696789022",
@@ -1346,7 +1347,7 @@ describe("command execution", () => {
           },
         ],
         run: {
-          display_name: "AAC Cruiserweight M1 (Savage)",
+          display_name: "Custom progression night title",
           id: 6932,
           starts_at: startsAt,
           status: "assigned",

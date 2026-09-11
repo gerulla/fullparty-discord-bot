@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { scheduleIntervalDaysSchema } from "../guildSchedule/settings.js";
 import { notificationDeliveryDataSchema } from "../notifications/types.js";
 import { HttpError } from "./httpError.js";
 
@@ -51,6 +52,9 @@ export const guildSettingsUpdatedDataSchema = z.looseObject({
     bot_log_channel_id: nullableSettingIdSchema,
     bot_moderator_role_id: nullableSettingIdSchema,
     run_announcement_channel_id: nullableSettingIdSchema,
+    schedule_refresh_enabled: z.boolean().optional(),
+    schedule_refresh_channel_id: nullableSettingIdSchema,
+    schedule_refresh_interval_days: scheduleIntervalDaysSchema.optional(),
     run_role_template_overrides: z.array(runRoleTemplateOverrideSchema).optional(),
     run_role_template_id: nullableSettingIdSchema,
     sync_discord_names_to_ff14: z.boolean().optional(),

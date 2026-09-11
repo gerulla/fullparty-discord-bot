@@ -1206,6 +1206,10 @@ describe("Fullparty webhook server", () => {
         data: {
           activity_id: 123,
           activity_title: "Cloud of Darkness",
+          run: {
+            activity_type: { name: { en: "Delubrum Reginae (Savage)" } },
+            display_name: "Custom bridge progression night",
+          },
           discord_guild_id: "900100200300400500",
           discord_user_ids: ["123", "456"],
           group_id: 45,
@@ -1249,7 +1253,7 @@ describe("Fullparty webhook server", () => {
           nicknameSyncEnabled: true,
           requestedUserCount: 2,
           roleId: "run-role-id",
-          roleName: "FullParty: Cloud of Darkness 21:00 UTC",
+          roleName: "Run: Delubrum Reginae (Savage) 21:00 UTC",
           runId: 123,
           templateOverrideActivityId: 123,
           templateOverrideActivityName: "Cloud of Darkness",
@@ -1275,7 +1279,7 @@ describe("Fullparty webhook server", () => {
     expect(createdRoles).toEqual([
       {
         id: "run-role-id",
-        name: "FullParty: Cloud of Darkness 21:00 UTC",
+        name: "Run: Delubrum Reginae (Savage) 21:00 UTC",
         permissions: { bitfield: 0n },
       },
     ]);
@@ -1336,7 +1340,7 @@ describe("Fullparty webhook server", () => {
             {
               inline: true,
               name: "🛡️ Run Role",
-              value: "<@&run-role-id>\n`FullParty: Cloud of Darkness 21:00 UTC`",
+              value: "<@&run-role-id>\n`Run: Delubrum Reginae (Savage) 21:00 UTC`",
             },
             {
               inline: true,
@@ -2399,6 +2403,11 @@ describe("Fullparty webhook server", () => {
           patches.push({ guildId, patch });
           const settings = {
             guildId,
+            scheduleRefreshEnabled: patch.scheduleRefreshEnabled ?? false,
+            scheduleRefreshIntervalDays: patch.scheduleRefreshIntervalDays ?? 1,
+            ...(patch.scheduleRefreshChannelId
+              ? { scheduleRefreshChannelId: patch.scheduleRefreshChannelId }
+              : {}),
             syncDiscordNamesToFf14: patch.syncDiscordNamesToFf14 ?? false,
           };
 
@@ -2436,6 +2445,9 @@ describe("Fullparty webhook server", () => {
             ],
             run_role_template_id: "template-role-id",
             sync_discord_names_to_ff14: true,
+            schedule_refresh_enabled: true,
+            schedule_refresh_channel_id: "schedule-channel-id",
+            schedule_refresh_interval_days: 7,
           },
         },
         event: "discord.guild.settings_updated",
@@ -2460,6 +2472,9 @@ describe("Fullparty webhook server", () => {
             run_role_template_id: "template-role-id",
             sync_discord_names_to_ff14: true,
             upcoming_raider_role_id: "template-role-id",
+            schedule_refresh_enabled: true,
+            schedule_refresh_channel_id: "schedule-channel-id",
+            schedule_refresh_interval_days: 7,
           },
           updated: true,
         },
@@ -2482,6 +2497,9 @@ describe("Fullparty webhook server", () => {
           ],
           syncDiscordNamesToFf14: true,
           upcomingRaiderRoleId: "template-role-id",
+          scheduleRefreshEnabled: true,
+          scheduleRefreshChannelId: "schedule-channel-id",
+          scheduleRefreshIntervalDays: 7,
         },
       },
     ]);
@@ -2609,6 +2627,7 @@ describe("Fullparty webhook server", () => {
         guildId: "guild-id",
         patch: {
           linkedAt: null,
+          scheduleRefreshEnabled: false,
           runRoleTemplateOverrides: [],
         },
       },

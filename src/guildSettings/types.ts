@@ -5,6 +5,9 @@ export type GuildSettings = {
   linkedAt?: string;
   runRoleTemplateOverrides?: GuildRoleTemplateOverride[];
   runAnnouncementChannelId?: string;
+  scheduleRefreshEnabled?: boolean;
+  scheduleRefreshChannelId?: string;
+  scheduleRefreshIntervalDays?: number;
   syncDiscordNamesToFf14: boolean;
   upcomingRaiderRoleId?: string;
   updatedAt?: string;
@@ -24,6 +27,9 @@ export type GuildSettingsPatch = {
   linkedAt?: string | null;
   runRoleTemplateOverrides?: GuildRoleTemplateOverride[];
   runAnnouncementChannelId?: string | null;
+  scheduleRefreshEnabled?: boolean;
+  scheduleRefreshChannelId?: string | null;
+  scheduleRefreshIntervalDays?: number;
   syncDiscordNamesToFf14?: boolean;
   upcomingRaiderRoleId?: string | null;
 };

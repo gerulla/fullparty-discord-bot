@@ -14,6 +14,7 @@ import {
 
 import type { GuildSettings, GuildSettingsPatch } from "../guildSettings/types.js";
 import type { ChatInputCommand, SetupComponentInteraction } from "./types.js";
+import { handleScheduleSetup, ScheduleCustomId } from "./scheduleSetup.js";
 
 const setupCustomIdPrefix = "setup";
 type SetupActionRow =
@@ -59,6 +60,17 @@ export const setupCommand: ChatInputCommand = {
       return;
     }
 
+    if (interaction.customId === ScheduleCustomId.Back) {
+      await interaction.update(buildSetupPanel(await context.guildSettings.get(guildId)));
+      return;
+    }
+    if (interaction.customId.startsWith("setup:schedule:")) {
+      await handleScheduleSetup(interaction, context, guildId, (patch) =>
+        createSetupPreflightWarning(interaction, patch),
+      );
+      return;
+    }
+
     const patch = getSettingsPatch(interaction);
     const preflightWarning = await createSetupPreflightWarning(interaction, patch);
     const settings = await context.guildSettings.update(guildId, patch);
@@ -85,6 +97,7 @@ function buildSetupPanel(
       "4. Bot moderator role: " + formatRole(settings.botModeratorRoleId),
       "5. Sync Discord names to FF14 character names: " +
         formatEnabled(settings.syncDiscordNamesToFf14),
+      "6. Automatic schedule: " + formatEnabled(settings.scheduleRefreshEnabled ?? false),
       "",
       "**Template Role Overrides:**",
       formatTemplateRoleOverrides(settings),
@@ -141,6 +154,10 @@ function buildSetupComponents(settings: GuildSettings): SetupActionRow[] {
       .setLabel("Disable name sync")
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(!settings.syncDiscordNamesToFf14),
+    new ButtonBuilder()
+      .setCustomId(ScheduleCustomId.Open)
+      .setLabel("Automatic schedule")
+      .setStyle(ButtonStyle.Secondary),
   );
 
   return [
@@ -206,7 +223,10 @@ async function createSetupPreflightWarning(
     return undefined;
   }
 
-  const channelId = patch.botLogChannelId ?? patch.runAnnouncementChannelId;
+  const channelId =
+    patch.botLogChannelId ??
+    patch.runAnnouncementChannelId ??
+    patch.scheduleRefreshChannelId;
 
   if (!channelId) {
     return undefined;
@@ -214,14 +234,27 @@ async function createSetupPreflightWarning(
 
   const channelLabel = patch.botLogChannelId
     ? "Bot-log channel"
-    : "Member-Facing Channel";
+    : patch.scheduleRefreshChannelId
+      ? "Automatic schedule channel"
+      : "Member-Facing Channel";
   const channel = await resolveSelectedChannel(interaction, channelId);
 
   if (!channel) {
     return `⚠️ ${channelLabel} preflight: I could not inspect <#${channelId}>. Make sure I can view and send messages there.`;
   }
 
-  const missingPermissions = getMissingChannelSendPermissions(interaction, channel);
+  const missingPermissions = patch.scheduleRefreshChannelId
+    ? [
+        { bit: PermissionFlagsBits.ViewChannel, label: "View Channel" },
+        { bit: PermissionFlagsBits.SendMessages, label: "Send Messages" },
+        { bit: PermissionFlagsBits.ReadMessageHistory, label: "Read Message History" },
+      ]
+        .filter(
+          (permission) =>
+            !getBotChannelPermissions(interaction, channel)?.has(permission.bit),
+        )
+        .map((permission) => permission.label)
+    : getMissingChannelSendPermissions(interaction, channel);
 
   if (missingPermissions.length === 0) {
     return undefined;

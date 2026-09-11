@@ -6,6 +6,7 @@ import {
 } from "discord.js";
 
 import type { BotContext } from "../bot/context.js";
+import { CommandError } from "../commands/commandError.js";
 import { getCommandMap, getComponentCommand } from "../commands/index.js";
 import type { ChatInputCommand, SetupComponentInteraction } from "../commands/types.js";
 import { FullpartyApiError } from "../fullparty/client.js";
@@ -94,7 +95,10 @@ async function handleChatInputCommand(
     });
     recordFailureSafely(context.failureReporter, context.logger, {
       action: interaction.commandName,
-      affectsHealth: !isExpectedDiscordFailure(error),
+      affectsHealth:
+        error instanceof CommandError
+          ? error.affectsHealth
+          : !isExpectedDiscordFailure(error),
       details: {
         error: serializeFailureError(error),
       },
@@ -152,7 +156,10 @@ async function handleComponentInteraction(
     });
     recordFailureSafely(context.failureReporter, context.logger, {
       action: interaction.customId,
-      affectsHealth: !isExpectedDiscordFailure(error),
+      affectsHealth:
+        error instanceof CommandError
+          ? error.affectsHealth
+          : !isExpectedDiscordFailure(error),
       details: {
         error: serializeFailureError(error),
       },
@@ -174,7 +181,10 @@ function isSetupComponentInteraction(
     (typeof interaction.isButton === "function" && interaction.isButton()) ||
     (typeof interaction.isChannelSelectMenu === "function" &&
       interaction.isChannelSelectMenu()) ||
-    (typeof interaction.isRoleSelectMenu === "function" && interaction.isRoleSelectMenu())
+    (typeof interaction.isRoleSelectMenu === "function" &&
+      interaction.isRoleSelectMenu()) ||
+    (typeof interaction.isStringSelectMenu === "function" &&
+      interaction.isStringSelectMenu())
   );
 }
 
@@ -183,9 +193,17 @@ async function replyWithError(
   error: unknown,
   fullpartyWebBaseUrl: string,
 ): Promise<void> {
-  const content = isUnlinkedDiscordUserError(error)
-    ? createLinkedUserRequiredMessage(fullpartyWebBaseUrl)
-    : "Something went wrong while running that command.";
+  const content =
+    error instanceof CommandError
+      ? error.publicMessage
+      : isUnlinkedDiscordUserError(error)
+        ? createLinkedUserRequiredMessage(fullpartyWebBaseUrl)
+        : "Something went wrong while running that command.";
+
+  if (interaction.deferred && "customId" in interaction) {
+    await interaction.followUp({ content, flags: MessageFlags.Ephemeral });
+    return;
+  }
 
   if (interaction.deferred) {
     await interaction.editReply({ content });

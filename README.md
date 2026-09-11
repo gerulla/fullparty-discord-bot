@@ -72,6 +72,33 @@ Run these commands from the repository root. `npm ci` installs both workspaces.
 Production still uses one bot process: `npm start` serves `/events`, `/health`,
 `/admin/api/*`, and the built dashboard at `/admin/` on the existing HTTP port.
 
+## Server resources
+
+Every member of a linked Discord server can use `/info` to post a paginated list of
+its FullParty resources. `/info name:bridges` posts an exact match publicly in the
+channel where the command was used. Partial matches return a private, paginated
+search list; no matches and request errors are private too. No moderator role or
+personal account link is required.
+Run `npm run commands:deploy:global` to register new commands after deploying.
+
+The bot requests ten entries per page and follows `meta.next_page` when Next is
+clicked, retaining the original search query. Only the command's author can change
+pages; controls expire after 15 minutes or a restart. Public resource-page buttons
+are taken from the list/search response's top-level `components` array, when supplied
+(at most four action rows, leaving one for pagination). No public URL is guessed
+for private groups. Exact resources retain their own `data.components` (up to five
+rows). Resource embeds and supplied link buttons are validated before posting.
+Declared assets are fetched from the matching FullParty
+API endpoint with the integration token, then uploaded with their original filenames
+so `attachment://` references work. Ordinary HTTP(S) image URLs are passed through
+without fetching them or sending credentials. Authenticated requests reject redirects.
+
+The bot needs View Channel, Send Messages (Send Messages in Threads for threads),
+and Embed Links; resources with assets also require Attach Files. Downloads are
+limited to the channel's per-file upload allowance and 25 MiB combined per resource.
+Missing resources, access failures, invalid data, and oversized attachments produce
+readable errors; diagnostic details go through the existing failure reporter.
+
 ## Reliability and state
 
 - API requests have a 15-second deadline; HTTP, transport, and malformed-response
@@ -220,10 +247,58 @@ The command opens an ephemeral setup panel for:
 - Upcoming raider role
 - Discord-name to FF14-character-name sync preference
 
+New temporary run roles use `Run: <English activity type name> <HH:mm UTC>`.
+The name comes from `data.run.activity_type.name.en` in reminder webhooks or
+`data.activity_type.name.en` in the run API, never the custom run display title.
+Older payloads missing the English name fall back to `Run: #<run_id> <HH:mm UTC>`.
+Existing roles keep their names and remain tracked and cleaned up by run ID.
+
 Settings are stored locally in SQLite:
 
 ```env
 DATABASE_PATH=data/fullparty-discord-bot.sqlite
+```
+
+### Automatic schedule refresh
+
+In `/setup`, select **Automatic schedule**, choose a channel, choose **Daily**, **Every
+2-6 days**, or **Weekly**, then enable it. Manage Server permission and a linked
+FullParty group are required. It is disabled by default and uses a separate channel
+setting from the Member-Facing Channel.
+
+The bot's background scheduler checks for due jobs every minute and processes one
+guild at a time. Enabling or changing schedule settings makes that guild due; after
+a successful post, the next refresh is one to seven days later. SQLite preserves
+the message ID and next due time across restarts. Missed days produce one catch-up
+refresh, not a backlog of repeated posts. No OS crontab, extra process, or command
+registration is needed for this setting; deploy/restart the bot normally. The new
+SQLite table is migrated automatically.
+
+The job fetches and validates the replacement first, then deletes only its previous
+automatic post and sends a fresh plain-text `/postruns` summary. It does not delete
+manual posts, send host pings, or add embeds/buttons. Disabling leaves the last post
+in place. Leaving/unlinking a server stops refreshes; unlink archives the schedule
+state with the other guild data and disables the setting.
+
+The bot needs View Channel, Send Messages, and Read Message History in the selected
+channel. Manage Messages is not required to delete its own post. Missing messages
+are recreated; failed deletions prevent additional posts. Errors are logged to the
+failure reporter/admin telemetry and shown in the setup panel, with an hourly retry.
+Repeated identical errors do not repeatedly notify the bot-log channel. Permission
+and expected configuration failures do not degrade bot health. Because deletion and
+posting are separate Discord requests, a failed send can leave the channel without
+a schedule until retry. A crash after sending but before recording its message ID
+can still leave a duplicate; Discord's short-lived nonce deduplication reduces, but
+does not eliminate, that window.
+
+Guild settings snapshots and `discord.guild.settings_updated` also support:
+
+```json
+{
+  "schedule_refresh_enabled": true,
+  "schedule_refresh_channel_id": "123456789012345678",
+  "schedule_refresh_interval_days": 7
+}
 ```
 
 Users can also run these DM-only commands:

@@ -53,6 +53,11 @@ function createGuildSettingsPatch(
   setPatchId(settings, patch, "bot_moderator_role_id", "botModeratorRoleId");
   setPatchId(settings, patch, "run_announcement_channel_id", "runAnnouncementChannelId");
   setPatchId(settings, patch, "upcoming_raider_role_id", "upcomingRaiderRoleId");
+  setPatchId(settings, patch, "schedule_refresh_channel_id", "scheduleRefreshChannelId");
+  if (settings.schedule_refresh_enabled !== undefined)
+    patch.scheduleRefreshEnabled = settings.schedule_refresh_enabled;
+  if (settings.schedule_refresh_interval_days !== undefined)
+    patch.scheduleRefreshIntervalDays = settings.schedule_refresh_interval_days;
 
   if (hasOwn(settings, "run_role_template_id")) {
     patch.upcomingRaiderRoleId = settings.run_role_template_id ?? null;
@@ -88,11 +93,15 @@ type GuildSettingsUpdatedIdKey =
   | "bot_log_channel_id"
   | "bot_moderator_role_id"
   | "run_announcement_channel_id"
-  | "upcoming_raider_role_id";
+  | "upcoming_raider_role_id"
+  | "schedule_refresh_channel_id";
 
 type GuildSettingsPatchIdKey = keyof Omit<
   GuildSettingsPatch,
-  "runRoleTemplateOverrides" | "syncDiscordNamesToFf14"
+  | "runRoleTemplateOverrides"
+  | "syncDiscordNamesToFf14"
+  | "scheduleRefreshEnabled"
+  | "scheduleRefreshIntervalDays"
 >;
 
 function setPatchId(

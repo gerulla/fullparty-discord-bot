@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { readResourceAsset, ResourceAssetError } from "./resources/assetDownload.js";
+import type { ResourceAsset } from "./resources/schemas.js";
 
 export type FullpartyApiClientOptions = {
   apiToken?: string;
@@ -126,6 +128,64 @@ export class FullpartyApiClient {
     });
   }
 
+  public listDiscordGuildResources(
+    discordGuildId: string,
+    page = 1,
+    perPage = 25,
+  ): Promise<unknown> {
+    return this.request("integrations/resources/list", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ discord_guild_id: discordGuildId, page, per_page: perPage }),
+    });
+  }
+
+  public getDiscordGuildResource(
+    discordGuildId: string,
+    commandName: string,
+    page = 1,
+    perPage = 25,
+  ): Promise<unknown> {
+    if (!commandName.trim() || commandName === "." || commandName === "..") {
+      throw new Error("Invalid resource command name.");
+    }
+    return this.request(`integrations/resources/${encodeURIComponent(commandName)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ discord_guild_id: discordGuildId, page, per_page: perPage }),
+    });
+  }
+
+  public getDiscordGuildResourceAsset(
+    discordGuildId: string,
+    commandName: string,
+    asset: ResourceAsset,
+    maxBytes: number,
+  ): Promise<Buffer> {
+    const url = new URL(asset.url);
+    const expected = new URL(
+      `integrations/discord-guilds/${encodeURIComponent(discordGuildId)}/resource-commands/${encodeURIComponent(commandName)}/assets/${encodeURIComponent(asset.id)}`,
+      this.baseUrl,
+    );
+    if (
+      url.origin !== expected.origin ||
+      url.pathname !== expected.pathname ||
+      url.username ||
+      url.password ||
+      url.hash
+    ) {
+      throw new ResourceAssetError(
+        "Resource asset URL is not the matching FullParty API endpoint.",
+        "unsafe_resource_asset",
+      );
+    }
+    return this.requestUrl(
+      url,
+      { method: "GET", headers: { accept: asset.mime_type } },
+      (response) => readResourceAsset(response, maxBytes),
+    );
+  }
+
   public async linkDiscordGuild(
     request: FullpartyDiscordGuildLinkRequest,
   ): Promise<FullpartyDiscordGuildLinkResponse> {
@@ -146,9 +206,27 @@ export class FullpartyApiClient {
 
   private async request(path: string, init: RequestInit = {}): Promise<unknown> {
     const url = new URL(stripLeadingSlash(path), this.baseUrl);
+    return this.requestUrl(url, init, async (response) => {
+      if (response.status === 204) return undefined;
+      const contentType = response.headers.get("content-type") ?? "";
+      if (!contentType.includes("application/json")) {
+        throw new FullpartyTransportError(
+          `Expected JSON from Fullparty API, received ${contentType}`,
+          "invalid_response",
+        );
+      }
+      return await response.json();
+    });
+  }
+
+  private async requestUrl<T>(
+    url: URL,
+    init: RequestInit,
+    read: (response: Response) => Promise<T>,
+  ): Promise<T> {
     const headers = new Headers(init.headers);
 
-    headers.set("accept", "application/json");
+    if (!headers.has("accept")) headers.set("accept", "application/json");
 
     if (this.apiToken) {
       headers.set("authorization", `Bearer ${this.apiToken}`);
@@ -174,22 +252,13 @@ export class FullpartyApiClient {
         );
       }
 
-      if (response.status === 204) {
-        return undefined;
-      }
-
-      const contentType = response.headers.get("content-type") ?? "";
-
-      if (!contentType.includes("application/json")) {
-        throw new FullpartyTransportError(
-          `Expected JSON from Fullparty API, received ${contentType}`,
-          "invalid_response",
-        );
-      }
-
-      return await response.json();
+      return await read(response);
     } catch (error) {
-      if (error instanceof FullpartyApiError || error instanceof FullpartyTransportError)
+      if (
+        error instanceof FullpartyApiError ||
+        error instanceof FullpartyTransportError ||
+        error instanceof ResourceAssetError
+      )
         throw error;
       throw new FullpartyTransportError(
         controller.signal.aborted
@@ -230,6 +299,9 @@ export type FullpartyApi = Pick<
   | "getDiscordGuildRunRoleAssignment"
   | "linkDiscordUser"
   | "linkDiscordGuild"
+  | "listDiscordGuildResources"
+  | "getDiscordGuildResource"
+  | "getDiscordGuildResourceAsset"
 >;
 
 async function readResponseBody(response: Response): Promise<unknown> {

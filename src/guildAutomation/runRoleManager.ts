@@ -1,12 +1,12 @@
 import type { GuildSettings } from "../guildSettings/types.js";
 import { createUnknownRole, fetchGuildRole } from "./discordGateway.js";
-import { truncateText } from "./presentation/common.js";
 import {
   copyTemplatePermissionOverwrites,
   createRunRoleFromTemplate,
   getRunRolePreflightFailure,
 } from "./rolePermissions.js";
 import type { GuildRunReminderData } from "./runReminderTypes.js";
+import { createRunRoleName } from "./runRoleName.js";
 import type {
   GuildAutomationProcessorOptions,
   GuildRunReminderGuild,
@@ -174,30 +174,4 @@ export async function ensureRunRole(
     roleName: role.name,
     templateRole,
   };
-}
-
-function createRunRoleName(data: GuildRunReminderData): string {
-  const activityName =
-    data.activity_title ?? data.activity ?? `Run #${String(data.run_id)}`;
-  const time = formatRunRoleStartTime(data.starts_at);
-  const roleName = `FullParty: ${activityName}${time ? ` ${time}` : ""}`;
-
-  return truncateText(roleName, 100);
-}
-
-function formatRunRoleStartTime(startsAt: string | undefined): string | undefined {
-  if (!startsAt) {
-    return undefined;
-  }
-
-  const date = new Date(startsAt);
-
-  if (Number.isNaN(date.getTime())) {
-    return undefined;
-  }
-
-  return `${date.getUTCHours().toString().padStart(2, "0")}:${date
-    .getUTCMinutes()
-    .toString()
-    .padStart(2, "0")} UTC`;
 }

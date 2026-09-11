@@ -6,6 +6,7 @@ import {
   type ChannelSelectMenuInteraction,
   type ChatInputCommandInteraction,
   type RoleSelectMenuInteraction,
+  type StringSelectMenuInteraction,
 } from "discord.js";
 import { describe, expect, it } from "vitest";
 
@@ -14,6 +15,7 @@ import { setupCommand } from "../src/commands/setup.js";
 import { FullpartyApiClient } from "../src/fullparty/client.js";
 import type { GuildSettings, GuildSettingsPatch } from "../src/guildSettings/types.js";
 import { LatestPayloadStore } from "../src/payloads/latestPayloadStore.js";
+import { createInteractionHandler } from "../src/interactions/handleInteraction.js";
 
 describe("setupCommand", () => {
   it("opens the setup panel for guild managers", async () => {
@@ -285,6 +287,133 @@ describe("setupCommand", () => {
       },
     ]);
   });
+
+  it("opens a separate automatic schedule panel and can return to the five-row setup", async () => {
+    const context = createContext();
+    const update = createAsyncRecorder();
+    await setupCommand.handleComponent?.(
+      createButtonInteraction({ customId: "setup:schedule:open", update: update.fn }),
+      context,
+    );
+    expect(update.calls[0]?.[0]).toMatchObject({
+      content: expect.stringContaining("Automatic Schedule") as string,
+    });
+    expect(getReplyComponents(update)).toHaveLength(3);
+    expect(JSON.stringify(update.calls)).toContain("Weekly");
+    await setupCommand.handleComponent?.(
+      createButtonInteraction({ customId: "setup:back", update: update.fn }),
+      context,
+    );
+    expect(update.calls[1]?.[0]).toMatchObject({
+      content: expect.stringContaining("FullParty Server Setup") as string,
+    });
+    expect(context.patches).toEqual([]);
+  });
+
+  it.each([1, 2, 3, 4, 5, 6, 7])(
+    "routes the frequency select and saves %i days",
+    async (days) => {
+      const context = createContext();
+      const update = createAsyncRecorder();
+      const interaction = {
+        customId: "setup:schedule:interval",
+        guildId: "guild-id",
+        inGuild: () => true,
+        memberPermissions: new PermissionsBitField(PermissionFlagsBits.ManageGuild),
+        update: update.fn,
+        reply: createAsyncRecorder().fn,
+        isChatInputCommand: () => false,
+        isButton: () => false,
+        isChannelSelectMenu: () => false,
+        isRoleSelectMenu: () => false,
+        isStringSelectMenu: () => true,
+        values: [String(days)],
+        user: { id: "manager" },
+      } as unknown as StringSelectMenuInteraction;
+      await createInteractionHandler(context, [setupCommand])(interaction);
+      expect(context.patches).toEqual([{ scheduleRefreshIntervalDays: days }]);
+      expect(update.calls).toHaveLength(1);
+    },
+  );
+
+  it("warns about history permission without requiring embeds in the schedule channel", async () => {
+    const context = createContext();
+    const update = createAsyncRecorder();
+    await setupCommand.handleComponent?.(
+      createChannelSelectInteraction({
+        customId: "setup:schedule:channel",
+        values: ["schedule-channel"],
+        update: update.fn,
+        channel: {
+          permissionsFor: () =>
+            new PermissionsBitField([
+              PermissionFlagsBits.ViewChannel,
+              PermissionFlagsBits.SendMessages,
+            ]),
+        },
+      }),
+      context,
+    );
+    expect(context.patches).toEqual([{ scheduleRefreshChannelId: "schedule-channel" }]);
+    expect(JSON.stringify(update.calls)).toContain("Read Message History");
+    expect(JSON.stringify(update.calls)).not.toContain("Embed Links");
+  });
+
+  it("requires a link and a chosen channel before enabling schedules", async () => {
+    for (const linked of [false, true]) {
+      const context = createContext({
+        guildId: "guild-id",
+        syncDiscordNamesToFf14: false,
+        ...(linked ? { linkedAt: "2026-09-11T00:00:00Z" } : {}),
+      });
+      const update = createAsyncRecorder();
+      await setupCommand.handleComponent?.(
+        createButtonInteraction({ customId: "setup:schedule:enable", update: update.fn }),
+        context,
+      );
+      expect(context.patches).toEqual([]);
+      expect(JSON.stringify(update.calls)).toContain(
+        linked ? "Choose a schedule channel" : "Link this server",
+      );
+    }
+  });
+
+  it("lets managers enable or disable scheduling after configuration", async () => {
+    const context = createContext({
+      guildId: "guild-id",
+      syncDiscordNamesToFf14: false,
+      linkedAt: "2026-09-11T00:00:00Z",
+      scheduleRefreshChannelId: "schedule-channel",
+    });
+    const update = createAsyncRecorder();
+    await setupCommand.handleComponent?.(
+      createButtonInteraction({ customId: "setup:schedule:enable", update: update.fn }),
+      context,
+    );
+    await setupCommand.handleComponent?.(
+      createButtonInteraction({ customId: "setup:schedule:disable", update: update.fn }),
+      context,
+    );
+    expect(context.patches).toEqual([
+      { scheduleRefreshEnabled: true },
+      { scheduleRefreshEnabled: false },
+    ]);
+  });
+
+  it("does not let non-managers change automatic schedules", async () => {
+    const context = createContext();
+    const reply = createAsyncRecorder();
+    await setupCommand.handleComponent?.(
+      createButtonInteraction({
+        customId: "setup:schedule:disable",
+        memberPermissions: new PermissionsBitField(),
+        reply: reply.fn,
+      }),
+      context,
+    );
+    expect(context.patches).toEqual([]);
+    expect(JSON.stringify(reply.calls)).toContain("Manage Server");
+  });
 });
 
 type TestContext = BotContext & {
@@ -352,18 +481,24 @@ function mergeTestSettings(
   patch: GuildSettingsPatch,
 ): GuildSettings {
   const next: GuildSettings = {
+    ...settings,
     guildId,
     ...(settings.runRoleTemplateOverrides
       ? { runRoleTemplateOverrides: settings.runRoleTemplateOverrides }
       : {}),
     syncDiscordNamesToFf14:
       patch.syncDiscordNamesToFf14 ?? settings.syncDiscordNamesToFf14,
+    scheduleRefreshEnabled:
+      patch.scheduleRefreshEnabled ?? settings.scheduleRefreshEnabled ?? false,
+    scheduleRefreshIntervalDays:
+      patch.scheduleRefreshIntervalDays ?? settings.scheduleRefreshIntervalDays ?? 1,
   };
 
   setOptionalSetting(next, "botLogChannelId", patch, settings);
   setOptionalSetting(next, "botModeratorRoleId", patch, settings);
   setOptionalSetting(next, "runAnnouncementChannelId", patch, settings);
   setOptionalSetting(next, "upcomingRaiderRoleId", patch, settings);
+  setOptionalSetting(next, "scheduleRefreshChannelId", patch, settings);
 
   return next;
 }
@@ -372,7 +507,10 @@ function setOptionalSetting(
   next: GuildSettings,
   key: keyof Omit<
     GuildSettingsPatch,
-    "runRoleTemplateOverrides" | "syncDiscordNamesToFf14"
+    | "runRoleTemplateOverrides"
+    | "syncDiscordNamesToFf14"
+    | "scheduleRefreshEnabled"
+    | "scheduleRefreshIntervalDays"
   >,
   patch: GuildSettingsPatch,
   settings: GuildSettings,

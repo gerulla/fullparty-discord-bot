@@ -16,6 +16,7 @@ describe("commands", () => {
       "faq",
       "guildruns",
       "help",
+      "info",
       "link",
       "ping",
       "postruns",
@@ -33,6 +34,7 @@ describe("commands", () => {
     const faq = commands.find((command) => command.name === "faq");
     const guildruns = commands.find((command) => command.name === "guildruns");
     const help = commands.find((command) => command.name === "help");
+    const info = commands.find((command) => command.name === "info");
     const link = commands.find((command) => command.name === "link");
     const payload = commands.find((command) => command.name === "payload");
     const ping = commands.find((command) => command.name === "ping");
@@ -47,6 +49,11 @@ describe("commands", () => {
     expect(faq).toBeDefined();
     expect(guildruns).toBeDefined();
     expect(help).toBeDefined();
+    expect(info).toMatchObject({
+      integration_types: [ApplicationIntegrationType.GuildInstall],
+      contexts: [InteractionContextType.Guild],
+      options: [{ name: "name", required: false }],
+    });
     expect(link).toBeDefined();
     expect(payload).toBeDefined();
     expect(ping).toBeDefined();

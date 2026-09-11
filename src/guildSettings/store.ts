@@ -1,4 +1,6 @@
 import { openSqliteDatabase } from "../database/sqlite.js";
+import { readScheduleSettings, writeScheduleSettings } from "../guildSchedule/store.js";
+import { scheduleIntervalDaysSchema } from "../guildSchedule/settings.js";
 import {
   createDefaultGuildSettings,
   type GuildRoleTemplateOverride,
@@ -38,6 +40,10 @@ export class SqliteGuildSettingsStore implements GuildSettingsStore {
   }
 
   public get(guildId: string): Promise<GuildSettings> {
+    return Promise.resolve(this.readSettings(guildId));
+  }
+
+  private readSettings(guildId: string): GuildSettings {
     const row = this.database
       .prepare(
         `
@@ -63,19 +69,25 @@ export class SqliteGuildSettingsStore implements GuildSettingsStore {
       settings.runRoleTemplateOverrides = overrides;
     }
 
-    return Promise.resolve(settings);
+    return {
+      ...settings,
+      ...readScheduleSettings(this.database, guildId),
+    };
   }
 
-  public async update(
-    guildId: string,
-    patch: GuildSettingsPatch,
-  ): Promise<GuildSettings> {
-    const current = await this.get(guildId);
-    const next = mergeGuildSettingsPatch(guildId, current, patch);
+  public update(guildId: string, patch: GuildSettingsPatch): Promise<GuildSettings> {
+    return Promise.resolve().then(() => this.updateSettings(guildId, patch));
+  }
 
-    this.database
-      .prepare(
-        `
+  private updateSettings(guildId: string, patch: GuildSettingsPatch): GuildSettings {
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const current = this.readSettings(guildId);
+      const next = mergeGuildSettingsPatch(guildId, current, patch);
+      scheduleIntervalDaysSchema.parse(next.scheduleRefreshIntervalDays ?? 1);
+      this.database
+        .prepare(
+          `
           INSERT INTO guild_settings (
             bot_log_channel_id,
             bot_moderator_role_id,
@@ -95,25 +107,31 @@ export class SqliteGuildSettingsStore implements GuildSettingsStore {
             upcoming_raider_role_id = excluded.upcoming_raider_role_id,
             updated_at = excluded.updated_at
         `,
-      )
-      .run(
-        next.botLogChannelId ?? null,
-        next.botModeratorRoleId ?? null,
-        next.guildId,
-        next.linkedAt ?? null,
-        next.runAnnouncementChannelId ?? null,
-        next.syncDiscordNamesToFf14 ? 1 : 0,
-        next.upcomingRaiderRoleId ?? null,
-        next.updatedAt ?? null,
+        )
+        .run(
+          next.botLogChannelId ?? null,
+          next.botModeratorRoleId ?? null,
+          next.guildId,
+          next.linkedAt ?? null,
+          next.runAnnouncementChannelId ?? null,
+          next.syncDiscordNamesToFf14 ? 1 : 0,
+          next.upcomingRaiderRoleId ?? null,
+          next.updatedAt ?? null,
+        );
+
+      this.replaceRoleTemplateOverrides(
+        guildId,
+        next.runRoleTemplateOverrides ?? [],
+        next.updatedAt ?? new Date().toISOString(),
       );
 
-    this.replaceRoleTemplateOverrides(
-      guildId,
-      next.runRoleTemplateOverrides ?? [],
-      next.updatedAt ?? new Date().toISOString(),
-    );
-
-    return next;
+      writeScheduleSettings(this.database, current, next);
+      this.database.exec("COMMIT");
+      return next;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   public close(): void {
@@ -204,6 +222,7 @@ function mergeGuildSettingsPatch(
   patch: GuildSettingsPatch,
 ): GuildSettings {
   const next: GuildSettings = {
+    ...current,
     guildId,
     syncDiscordNamesToFf14:
       patch.syncDiscordNamesToFf14 ?? current.syncDiscordNamesToFf14,
@@ -229,6 +248,17 @@ function mergeGuildSettingsPatch(
     current.runAnnouncementChannelId,
   );
   const linkedAt = getPatchValue(patch, "linkedAt", current.linkedAt);
+  const scheduleChannelId = getPatchValue(
+    patch,
+    "scheduleRefreshChannelId",
+    current.scheduleRefreshChannelId,
+  );
+  if (scheduleChannelId) next.scheduleRefreshChannelId = scheduleChannelId;
+  else delete next.scheduleRefreshChannelId;
+  if (patch.scheduleRefreshEnabled !== undefined)
+    next.scheduleRefreshEnabled = patch.scheduleRefreshEnabled;
+  if (patch.scheduleRefreshIntervalDays !== undefined)
+    next.scheduleRefreshIntervalDays = patch.scheduleRefreshIntervalDays;
   const upcomingRaiderRoleId = getPatchValue(
     patch,
     "upcomingRaiderRoleId",
@@ -237,23 +267,23 @@ function mergeGuildSettingsPatch(
 
   if (botLogChannelId) {
     next.botLogChannelId = botLogChannelId;
-  }
+  } else delete next.botLogChannelId;
 
   if (botModeratorRoleId) {
     next.botModeratorRoleId = botModeratorRoleId;
-  }
+  } else delete next.botModeratorRoleId;
 
   if (runAnnouncementChannelId) {
     next.runAnnouncementChannelId = runAnnouncementChannelId;
-  }
+  } else delete next.runAnnouncementChannelId;
 
   if (linkedAt) {
     next.linkedAt = linkedAt;
-  }
+  } else delete next.linkedAt;
 
   if (upcomingRaiderRoleId) {
     next.upcomingRaiderRoleId = upcomingRaiderRoleId;
-  }
+  } else delete next.upcomingRaiderRoleId;
 
   if (runRoleTemplateOverrides) {
     next.runRoleTemplateOverrides = runRoleTemplateOverrides;
@@ -275,7 +305,10 @@ function getPatchValue(
   patch: GuildSettingsPatch,
   key: keyof Omit<
     GuildSettingsPatch,
-    "runRoleTemplateOverrides" | "syncDiscordNamesToFf14"
+    | "runRoleTemplateOverrides"
+    | "syncDiscordNamesToFf14"
+    | "scheduleRefreshEnabled"
+    | "scheduleRefreshIntervalDays"
   >,
   currentValue: string | undefined,
 ): string | null | undefined {

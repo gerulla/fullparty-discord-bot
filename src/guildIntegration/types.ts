@@ -9,6 +9,7 @@ export type GuildIntegrationOptions = {
     | "guildRunRoles"
     | "guildMemberCache"
     | "guildMemberCacheScheduler"
+    | "guildScheduleStore"
     | "logger"
   >;
 };

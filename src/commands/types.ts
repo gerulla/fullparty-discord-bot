@@ -3,6 +3,7 @@ import type {
   ChannelSelectMenuInteraction,
   ChatInputCommandInteraction,
   RoleSelectMenuInteraction,
+  StringSelectMenuInteraction,
   SlashCommandBuilder,
   SlashCommandOptionsOnlyBuilder,
   SlashCommandSubcommandsOnlyBuilder,
@@ -28,4 +29,5 @@ export type ChatInputCommand = {
 export type SetupComponentInteraction =
   | ButtonInteraction
   | ChannelSelectMenuInteraction
-  | RoleSelectMenuInteraction;
+  | RoleSelectMenuInteraction
+  | StringSelectMenuInteraction;

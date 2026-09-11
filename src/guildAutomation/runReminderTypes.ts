@@ -62,9 +62,14 @@ const guildRunParticipantsSchema = z
   )
   .default([]);
 
+const runActivityTypeSchema = z.looseObject({
+  name: z.looseObject({ en: z.string().trim().nullish() }).nullish(),
+});
+
 export const guildRunReminderDataSchema = z.looseObject({
   activity_id: z.number().int().positive().optional(),
   activity_title: z.string().trim().min(1).optional(),
+  activity_type: runActivityTypeSchema.nullish(),
   activity: z.string().trim().min(1).optional(),
   discord_guild_id: z.string().trim().min(1),
   discord_user_ids: z.array(z.string().trim().min(1)).default([]),
@@ -72,6 +77,12 @@ export const guildRunReminderDataSchema = z.looseObject({
   group_slug: z.string().trim().min(1).optional(),
   participants: guildRunParticipantsSchema,
   reminder_type: z.enum(["starting_soon", "starting_now"]),
+  run: z
+    .looseObject({
+      activity_type: runActivityTypeSchema.nullish(),
+      starts_at: z.string().trim().min(1).nullish(),
+    })
+    .nullish(),
   run_id: z.number().int().positive(),
   starts_at: z.string().trim().min(1).optional(),
   type: z.enum(["runs.starting_soon", "runs.starting_now"]),

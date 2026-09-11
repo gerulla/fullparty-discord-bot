@@ -13,6 +13,9 @@ import { SqliteGuildRunRoleStore } from "../guildAutomation/runRoleStore.js";
 import { GuildMemberCacheScheduler } from "../guildMembership/memberCacheScheduler.js";
 import { SqliteGuildMemberCacheStore } from "../guildMembership/memberCacheStore.js";
 import { SqliteGuildSettingsStore } from "../guildSettings/store.js";
+import { SqliteGuildScheduleStore } from "../guildSchedule/store.js";
+import { GuildSchedulePublisher } from "../guildSchedule/publisher.js";
+import { GuildScheduleScheduler } from "../guildSchedule/scheduler.js";
 import { SqliteFailureReporter } from "../health/failureReporter.js";
 import { startWebhookServer, stopWebhookServer } from "../http/server.js";
 import type { Logger } from "../lib/logger.js";
@@ -47,6 +50,10 @@ export async function startApplication(
     resources.add("member cache", () => {
       guildMemberCache.close();
     });
+    const guildScheduleStore = new SqliteGuildScheduleStore(config.DATABASE_PATH);
+    resources.add("schedule store", () => {
+      guildScheduleStore.close();
+    });
     const adminDatabase = openSqliteDatabase(config.DATABASE_PATH);
     resources.add("admin database", () => {
       adminDatabase.close();
@@ -73,6 +80,7 @@ export async function startApplication(
       adminStore,
       failureReporter,
       guildSettings,
+      guildScheduleStore,
       guildMemberCache,
       guildRunRoles,
       userDmRateLimiter,
@@ -121,6 +129,13 @@ export async function startApplication(
     resources.add("automation queue", () => automationQueue.stop());
     context.guildMemberCacheScheduler = memberScheduler;
     context.guildRunReminderQueue = automationQueue;
+    const scheduleScheduler = new GuildScheduleScheduler({
+      client,
+      context,
+      store: guildScheduleStore,
+      publisher: new GuildSchedulePublisher(client, context, guildScheduleStore),
+    });
+    resources.add("schedule scheduler", () => scheduleScheduler.stop());
     logger.info("Starting webhook server.", {
       host: config.HTTP_HOST,
       port: config.HTTP_PORT,
@@ -140,6 +155,7 @@ export async function startApplication(
     userDmRateLimiter.resume();
     memberScheduler.start();
     automationQueue.start();
+    scheduleScheduler.start();
     return { context, stop: () => resources.close() };
   } catch (error) {
     try {

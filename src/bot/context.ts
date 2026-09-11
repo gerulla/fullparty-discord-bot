@@ -6,6 +6,7 @@ import type { GuildRunRoleStore } from "../guildAutomation/runRoleStore.js";
 import type { GuildMemberCacheScheduler } from "../guildMembership/memberCacheScheduler.js";
 import type { GuildMemberCacheStore } from "../guildMembership/memberCacheStore.js";
 import type { GuildSettingsStore } from "../guildSettings/store.js";
+import type { SqliteGuildScheduleStore } from "../guildSchedule/store.js";
 import type { FailureReporter } from "../health/failureReporter.js";
 import type { Logger } from "../lib/logger.js";
 import type { RuntimeLogBuffer } from "../lib/runtimeLogBuffer.js";
@@ -22,6 +23,7 @@ export type BotContext = {
   guildRunRoles?: GuildRunRoleStore | undefined;
   guildRunReminderQueue?: GuildRunReminderQueue | undefined;
   guildSettings: GuildSettingsStore;
+  guildScheduleStore?: Pick<SqliteGuildScheduleStore, "get"> | undefined;
   logger: Logger;
   payloadCommandAllowedUserId?: string | undefined;
   payloads: LatestPayloadStore;

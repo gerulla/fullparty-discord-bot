@@ -21,6 +21,7 @@ export async function disconnectGuildFromFullparty(
 
   await options.context.guildSettings.update(data.discord_guild_id, {
     linkedAt: null,
+    scheduleRefreshEnabled: false,
     runRoleTemplateOverrides: [],
   });
   await options.context.guildMemberCache?.markGuildObsolete(
@@ -74,6 +75,8 @@ async function createGuildDisconnectArchive(
       live_guild_snapshot: liveSnapshot,
       membership_cache: membershipCache,
       run_role_mappings: runRoleMappings,
+      schedule_refresh:
+        options.context.guildScheduleStore?.get(data.discord_guild_id) ?? null,
       settings: serializeGuildSettings(settings),
     },
   };
