@@ -2,6 +2,8 @@ import { z } from "zod";
 import { readResourceAsset, ResourceAssetError } from "./resources/assetDownload.js";
 import type { ResourceAsset } from "./resources/schemas.js";
 
+const botIntegrationPath = "integrations/v1/bot";
+
 export type FullpartyApiClientOptions = {
   apiToken?: string;
   baseUrl: string;
@@ -73,7 +75,7 @@ export class FullpartyApiClient {
     discordId: string,
   ): Promise<FullpartyDiscordUserApplicationsResponse> {
     return this.request(
-      `integrations/discord-users/${encodeURIComponent(discordId)}/applications`,
+      `${botIntegrationPath}/discord-users/${encodeURIComponent(discordId)}/applications`,
     );
   }
 
@@ -81,7 +83,7 @@ export class FullpartyApiClient {
     discordId: string,
   ): Promise<FullpartyDiscordUserUpcomingRunsResponse> {
     return this.request(
-      `integrations/discord-users/${encodeURIComponent(discordId)}/upcoming-runs`,
+      `${botIntegrationPath}/discord-users/${encodeURIComponent(discordId)}/upcoming-runs`,
     );
   }
 
@@ -89,7 +91,7 @@ export class FullpartyApiClient {
     discordGuildId: string,
     options: FullpartyDiscordGuildUpcomingRunsOptions = {},
   ): Promise<FullpartyDiscordGuildUpcomingRunsResponse> {
-    const path = `integrations/discord-guilds/${encodeURIComponent(discordGuildId)}/upcoming-runs`;
+    const path = `${botIntegrationPath}/discord-guilds/${encodeURIComponent(discordGuildId)}/upcoming-runs`;
     const searchParams = new URLSearchParams();
 
     if (typeof options.limit === "number") {
@@ -106,14 +108,14 @@ export class FullpartyApiClient {
     runId: number,
   ): Promise<FullpartyDiscordGuildRunRoleAssignmentResponse> {
     return this.request(
-      `integrations/discord-guilds/${encodeURIComponent(discordGuildId)}/runs/${encodeURIComponent(String(runId))}/role-assignment`,
+      `${botIntegrationPath}/discord-guilds/${encodeURIComponent(discordGuildId)}/runs/${encodeURIComponent(String(runId))}/role-assignment`,
     );
   }
 
   public async linkDiscordUser(
     request: FullpartyDiscordUserLinkRequest,
   ): Promise<FullpartyDiscordUserLinkResponse> {
-    return this.request("integrations/discord-users/link", {
+    return this.request(`${botIntegrationPath}/discord-users/link`, {
       body: JSON.stringify({
         ...(request.avatarUrl ? { avatar_url: request.avatarUrl } : {}),
         discord_user_id: request.discordUserId,
@@ -133,7 +135,7 @@ export class FullpartyApiClient {
     page = 1,
     perPage = 25,
   ): Promise<unknown> {
-    return this.request("integrations/resources/list", {
+    return this.request(`${botIntegrationPath}/resources/list`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ discord_guild_id: discordGuildId, page, per_page: perPage }),
@@ -149,11 +151,18 @@ export class FullpartyApiClient {
     if (!commandName.trim() || commandName === "." || commandName === "..") {
       throw new Error("Invalid resource command name.");
     }
-    return this.request(`integrations/resources/${encodeURIComponent(commandName)}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ discord_guild_id: discordGuildId, page, per_page: perPage }),
-    });
+    return this.request(
+      `${botIntegrationPath}/resources/${encodeURIComponent(commandName)}`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          discord_guild_id: discordGuildId,
+          page,
+          per_page: perPage,
+        }),
+      },
+    );
   }
 
   public getDiscordGuildResourceAsset(
@@ -164,7 +173,7 @@ export class FullpartyApiClient {
   ): Promise<Buffer> {
     const url = new URL(asset.url);
     const expected = new URL(
-      `integrations/discord-guilds/${encodeURIComponent(discordGuildId)}/resource-commands/${encodeURIComponent(commandName)}/assets/${encodeURIComponent(asset.id)}`,
+      `${botIntegrationPath}/discord-guilds/${encodeURIComponent(discordGuildId)}/resource-commands/${encodeURIComponent(commandName)}/assets/${encodeURIComponent(asset.id)}`,
       this.baseUrl,
     );
     if (
@@ -189,7 +198,7 @@ export class FullpartyApiClient {
   public async linkDiscordGuild(
     request: FullpartyDiscordGuildLinkRequest,
   ): Promise<FullpartyDiscordGuildLinkResponse> {
-    return this.request("integrations/discord-guilds/link", {
+    return this.request(`${botIntegrationPath}/discord-guilds/link`, {
       body: JSON.stringify({
         discord_guild_id: request.discordGuildId,
         icon_url: request.iconUrl ?? null,

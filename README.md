@@ -444,7 +444,18 @@ Users can also run these DM-only commands:
 
 Those commands post normal Discord messages in the DM where they are run. They
 call FullParty through `FULLPARTY_API_BASE_URL` using the configured
-`FULLPARTY_API_TOKEN`. `FULLPARTY_API_BASE_URL` should point at the API root.
+`FULLPARTY_API_TOKEN`. Keep `FULLPARTY_API_BASE_URL` pointing at the API root;
+the client appends `integrations/v1/bot/` for all bot integration operations,
+including account/guild linking, run lookups, and resource/asset requests.
+For example, an API root of `https://fullparty.gg/api` produces
+`https://fullparty.gg/api/integrations/v1/bot/resources/list`.
+Do not include `/integrations/v1/bot` in the configured base URL.
+
+Endpoint suffixes, tokens, scopes, and payloads are unchanged. Health requests
+still use `<API root>/health`. Inbound FullParty events and notification deliveries
+still use the bot's configured webhook URL. The separate member-action namespace
+`/api/integrations/v1/*` is not used by these existing bot operations.
+
 For local testing against Laravel, set:
 
 ```env

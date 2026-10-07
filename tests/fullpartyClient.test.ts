@@ -106,7 +106,7 @@ describe("FullpartyApiClient", () => {
     }
 
     expect(fetchInputToUrl(call.input)).toBe(
-      "http://fullparty.test/api/integrations/discord-users/123456789012345678/applications",
+      "http://fullparty.test/api/integrations/v1/bot/discord-users/123456789012345678/applications",
     );
   });
 
@@ -143,7 +143,7 @@ describe("FullpartyApiClient", () => {
     }
 
     expect(fetchInputToUrl(call.input)).toBe(
-      "http://fullparty.test/api/integrations/discord-users/123456789012345678/upcoming-runs",
+      "http://fullparty.test/api/integrations/v1/bot/discord-users/123456789012345678/upcoming-runs",
     );
   });
 
@@ -181,7 +181,7 @@ describe("FullpartyApiClient", () => {
     }
 
     expect(fetchInputToUrl(call.input)).toBe(
-      "http://fullparty.test/api/integrations/discord-guilds/1379217636696789022/upcoming-runs?limit=25",
+      "http://fullparty.test/api/integrations/v1/bot/discord-guilds/1379217636696789022/upcoming-runs?limit=25",
     );
 
     const headers = new Headers(call.init?.headers);
@@ -225,7 +225,7 @@ describe("FullpartyApiClient", () => {
     }
 
     expect(fetchInputToUrl(call.input)).toBe(
-      "http://fullparty.test/api/integrations/discord-guilds/1379217636696789022/runs/6932/role-assignment",
+      "http://fullparty.test/api/integrations/v1/bot/discord-guilds/1379217636696789022/runs/6932/role-assignment",
     );
 
     const headers = new Headers(call.init?.headers);
@@ -273,7 +273,7 @@ describe("FullpartyApiClient", () => {
     }
 
     expect(fetchInputToUrl(call.input)).toBe(
-      "http://fullparty.test/api/integrations/discord-users/link",
+      "http://fullparty.test/api/integrations/v1/bot/discord-users/link",
     );
     expect(call.init?.method).toBe("POST");
 
@@ -330,7 +330,7 @@ describe("FullpartyApiClient", () => {
     }
 
     expect(fetchInputToUrl(call.input)).toBe(
-      "http://fullparty.test/api/integrations/discord-guilds/link",
+      "http://fullparty.test/api/integrations/v1/bot/discord-guilds/link",
     );
     expect(call.init?.method).toBe("POST");
 

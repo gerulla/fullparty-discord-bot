@@ -15,7 +15,7 @@ const asset: ResourceAsset = {
   id: "asset-id",
   filename: "asset-id.png",
   mime_type: "image/png",
-  url: "https://fullparty.gg/api/integrations/discord-guilds/123/resource-commands/bridges/assets/asset-id",
+  url: "https://fullparty.gg/api/integrations/v1/bot/discord-guilds/123/resource-commands/bridges/assets/asset-id",
 };
 function resource(): ResourceData {
   return resourceResponseSchema.parse({
@@ -88,8 +88,10 @@ describe("resource attachments and components", () => {
   it.each([
     "https://external.example/asset.png",
     "https://fullparty.gg/api/other-endpoint",
-    "https://fullparty.gg/api/integrations/discord-guilds/other-guild/resource-commands/bridges/assets/asset-id",
-    "https://fullparty.gg/api/integrations/discord-guilds/123/resource-commands/other-resource/assets/asset-id",
+    "https://fullparty.gg/api/integrations/discord-guilds/123/resource-commands/bridges/assets/asset-id",
+    "https://fullparty.gg/api/integrations/v1/discord-guilds/123/resource-commands/bridges/assets/asset-id",
+    "https://fullparty.gg/api/integrations/v1/bot/discord-guilds/other-guild/resource-commands/bridges/assets/asset-id",
+    "https://fullparty.gg/api/integrations/v1/bot/discord-guilds/123/resource-commands/other-resource/assets/asset-id",
   ])("never sends credentials to an unexpected asset URL: %s", async (url) => {
     const fetcher = vi.fn<typeof fetch>();
     const service = new GuildResourceService(

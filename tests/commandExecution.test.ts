@@ -806,7 +806,7 @@ describe("command execution", () => {
       source: "FullParty /guildruns API response",
     });
     expect(fetchInputToUrl(calls[0]?.input)).toBe(
-      "http://fullparty.test/api/integrations/discord-guilds/1379217636696789022/upcoming-runs?limit=25",
+      "http://fullparty.test/api/integrations/v1/bot/discord-guilds/1379217636696789022/upcoming-runs?limit=25",
     );
   });
 
@@ -918,7 +918,7 @@ describe("command execution", () => {
       },
     ]);
     expect(fetchInputToUrl(calls[0]?.input)).toBe(
-      "http://fullparty.test/api/integrations/discord-guilds/1379217636696789022/upcoming-runs?limit=25",
+      "http://fullparty.test/api/integrations/v1/bot/discord-guilds/1379217636696789022/upcoming-runs?limit=25",
     );
   });
 
@@ -1112,7 +1112,7 @@ describe("command execution", () => {
       ],
     ]);
     expect(fetchInputToUrl(calls[0]?.input)).toBe(
-      "http://fullparty.test/api/integrations/discord-guilds/1379217636696789022/upcoming-runs?limit=25",
+      "http://fullparty.test/api/integrations/v1/bot/discord-guilds/1379217636696789022/upcoming-runs?limit=25",
     );
     expect(context.payloads.get()).toMatchObject({
       payload: {
@@ -1301,7 +1301,7 @@ describe("command execution", () => {
       ],
     ]);
     expect(fetchInputToUrl(calls[0]?.input)).toBe(
-      "http://fullparty.test/api/integrations/discord-guilds/1379217636696789022/runs/6932/role-assignment",
+      "http://fullparty.test/api/integrations/v1/bot/discord-guilds/1379217636696789022/runs/6932/role-assignment",
     );
   });
 
@@ -1451,7 +1451,7 @@ describe("command execution", () => {
       ],
     ]);
     expect(fetchInputToUrl(calls[0]?.input)).toBe(
-      "http://fullparty.test/api/integrations/discord-guilds/1379217636696789022/runs/6932/role-assignment",
+      "http://fullparty.test/api/integrations/v1/bot/discord-guilds/1379217636696789022/runs/6932/role-assignment",
     );
   });
 
@@ -1746,7 +1746,7 @@ describe("command execution", () => {
     ]);
     expect(calls).toHaveLength(1);
     expect(fetchInputToUrl(calls[0]?.input)).toBe(
-      "http://fullparty.test/api/integrations/discord-guilds/link",
+      "http://fullparty.test/api/integrations/v1/bot/discord-guilds/link",
     );
     expect(parseJsonRequestBody(calls[0])).toEqual({
       discord_guild_id: "1379217636696789022",

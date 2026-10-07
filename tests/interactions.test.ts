@@ -153,7 +153,7 @@ describe("createInteractionHandler", () => {
       Promise.reject(
         new FullpartyApiError("Fullparty API request failed with status 404", 404, {
           message:
-            "The route api/integrations/discord-users/182/applications could not be found.",
+            "The route api/integrations/v1/bot/discord-users/182/applications could not be found.",
         }),
       ),
     );

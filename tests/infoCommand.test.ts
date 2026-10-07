@@ -43,7 +43,7 @@ const resource = {
       id: "image-id",
       filename: "bridges.png",
       mime_type: "image/png",
-      url: "https://fullparty.gg/api/integrations/discord-guilds/123/resource-commands/bridges/assets/image-id",
+      url: "https://fullparty.gg/api/integrations/v1/bot/discord-guilds/123/resource-commands/bridges/assets/image-id",
     },
   ],
   components: links,
@@ -278,7 +278,7 @@ describe("/info", () => {
     const request = fetcher.mock.calls[0];
     if (!request) throw new Error("Expected a FullParty API request");
     expect(fetchUrl(request[0])).toBe(
-      "https://fullparty.gg/api/integrations/resources/drs-preparation",
+      "https://fullparty.gg/api/integrations/v1/bot/resources/drs-preparation",
     );
   });
   it("does not add public URLs/buttons to restricted resources", async () => {
@@ -306,7 +306,7 @@ describe("/info", () => {
     async (query) => {
       const fetcher = vi.fn<typeof fetch>((url, init) => {
         expect(fetchUrl(url)).toBe(
-          `https://fullparty.gg/api/integrations/resources/${query ?? "list"}`,
+          `https://fullparty.gg/api/integrations/v1/bot/resources/${query ?? "list"}`,
         );
         const body = fetchJsonBody(init) as { page: number };
         return Promise.resolve(

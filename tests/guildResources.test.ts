@@ -110,7 +110,9 @@ describe("FullParty guild resources", () => {
   it("POSTs authenticated list requests one page at a time", async () => {
     const bodies: unknown[] = [];
     const fetcher = vi.fn<typeof fetch>((url, init) => {
-      expect(fetchUrl(url)).toBe("https://fullparty.gg/api/integrations/resources/list");
+      expect(fetchUrl(url)).toBe(
+        "https://fullparty.gg/api/integrations/v1/bot/resources/list",
+      );
       expect(init?.method).toBe("POST");
       const headers = new Headers(init?.headers);
       expect(headers.get("authorization")).toBe("Bearer integration-token");
@@ -146,7 +148,7 @@ describe("FullParty guild resources", () => {
   it("fetches an encoded resource name without changing it or dropping guild context", async () => {
     const fetcher = vi.fn<typeof fetch>((url, init) => {
       expect(fetchUrl(url)).toBe(
-        "https://fullparty.gg/api/integrations/resources/Bridge%20%26%20Positions",
+        "https://fullparty.gg/api/integrations/v1/bot/resources/Bridge%20%26%20Positions",
       );
       expect(init?.method).toBe("POST");
       expect(fetchJsonBody(init)).toEqual({
