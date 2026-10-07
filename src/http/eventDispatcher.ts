@@ -1,4 +1,9 @@
 import {
+  adminReportDataSchema,
+  adminReportEvent,
+  sendAdminReport,
+} from "../dm/adminReport.js";
+import {
   sendUserDm,
   userAppDisconnectedMessage,
   userAppInstalledMessage,
@@ -40,6 +45,10 @@ export async function dispatchEvent(
   event: FullpartyEvent,
   options: WebhookServerOptions,
 ): Promise<ActionResult> {
+  if (event.event === adminReportEvent) {
+    return sendAdminReport(options, adminReportDataSchema.parse(event.data));
+  }
+
   const automation = new GuildAutomationService(options);
   if (event.event === runParticipantSyncEvent) {
     return automation.syncParticipant(

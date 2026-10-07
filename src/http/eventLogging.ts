@@ -1,6 +1,8 @@
 import type { AdminBotEventInput } from "@fullparty/admin";
 import type { IncomingMessage } from "node:http";
 import { z } from "zod";
+import type { BotContext } from "../bot/context.js";
+import { adminReportEvent } from "../dm/adminReport.js";
 import { recordFailureSafely, serializeFailureError } from "../health/failureReporter.js";
 import { getErrorMessage } from "../lib/errors.js";
 import { getStringProperty, isRecord } from "../lib/valueReaders.js";
@@ -56,7 +58,14 @@ export function recordWebhookFailure(
 
 export function getAdminEventSubject(
   event: FullpartyEvent,
+  context: Pick<BotContext, "payloadCommandAllowedUserId">,
 ): Pick<AdminBotEventInput, "discordGuildId" | "discordUserId"> {
+  if (event.event === adminReportEvent) {
+    return context.payloadCommandAllowedUserId
+      ? { discordUserId: context.payloadCommandAllowedUserId }
+      : {};
+  }
+
   if (!isRecord(event.data)) {
     return {};
   }

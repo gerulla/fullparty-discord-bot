@@ -232,6 +232,46 @@ For debugging, the bot stores the most recent signed `POST /events` payload or
 the latest `/link`, `/applications`, or `/runs` API response/error in memory.
 Run `/payload` to view it; payloads are not sent as automatic DMs.
 
+### Send an admin report
+
+The website can report an issue to the bot owner with a signed `POST /events`:
+
+```json
+{
+  "event": "discord.admin.report",
+  "requestId": "issue-123",
+  "data": {
+    "title": "Run cleanup delivery failed",
+    "message": "Run 123 could not be cleaned up after three delivery attempts.",
+    "severity": "error",
+    "url": "https://fullparty.gg/admin/issues/123"
+  }
+}
+```
+
+Reports are DMed only to `PAYLOAD_COMMAND_ALLOWED_USER_ID`, the same account used
+for `/payload` and `!token`. The payload cannot choose a different recipient. If
+that environment variable is unset, the event returns HTTP 503 with
+`admin_report_recipient_not_configured`.
+
+`title` (1–256 characters) and `message` (1–4096 characters) are required and trimmed.
+`severity` is `info`, `warning`, `error` (default), or `critical`. Optional `url` must
+be an absolute HTTP(S) URL, up to 2048 characters; it makes the report title clickable.
+The DM is an embed with a severity color and timestamp. Invalid data returns HTTP
+400; the same signature headers and HMAC calculation above are required.
+
+Delivery uses the existing durable DM queue and per-user limit (by default, two DMs
+per five minutes, shared with other DMs to that account). HTTP 200 with
+`result.messageId` means sent; `result.queued: true` means accepted for later
+delivery, with `queuePosition` and `nextAttemptAt` in the result. Events and DM
+outcomes appear in admin telemetry. Immediate Discord delivery failures return an
+error; failures after queueing are recorded in the bot logs and DM telemetry.
+The recipient must allow DMs from the bot.
+
+`requestId` is for tracing, not deduplication: resending an accepted report can
+send another DM. Deploy/restart the bot to enable this event; no command
+registration or new environment variable is needed if the owner ID is already set.
+
 ### Clean up a completed or cancelled run
 
 Send a signed `POST /events` request when a run completes:

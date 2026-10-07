@@ -145,7 +145,7 @@ async function handleRequest(
     eventLogWritten = true;
     const result = await dispatchEvent(event, options);
     recordAdminBotEvent(options.context.adminStore, options.context.logger, {
-      ...getAdminEventSubject(event),
+      ...getAdminEventSubject(event, options.context),
       dataType: getEventDataType(event),
       eventType: event.event,
       occurredAt: new Date().toISOString(),
