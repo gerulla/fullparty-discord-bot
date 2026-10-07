@@ -91,14 +91,15 @@ export const guildRunReminderDataSchema = z.looseObject({
 
 export type GuildRunReminderData = z.infer<typeof guildRunReminderDataSchema>;
 
-export const guildRunCompletedDataSchema = z.looseObject({
-  activity_id: z.number().int().positive().optional(),
-  activity_title: z.string().trim().min(1).optional(),
-  activity: z.string().trim().min(1).optional(),
+// Cleanup uses the stored guild/run mapping, never the participant roster.
+// Strip unrelated data and tolerate invalid optional metadata used only in logs.
+export const guildRunCompletedDataSchema = z.object({
+  activity_id: z.number().int().positive().optional().catch(undefined),
+  activity_title: z.string().trim().min(1).optional().catch(undefined),
+  activity: z.string().trim().min(1).optional().catch(undefined),
   discord_guild_id: z.string().trim().min(1),
-  group_id: z.number().int().positive().optional(),
-  group_slug: z.string().trim().min(1).optional(),
-  participants: guildRunParticipantsSchema,
+  group_id: z.number().int().positive().optional().catch(undefined),
+  group_slug: z.string().trim().min(1).optional().catch(undefined),
   run_id: z.number().int().positive(),
   type: z.enum(["runs.completed", "runs.cancelled"]).default("runs.completed"),
 });

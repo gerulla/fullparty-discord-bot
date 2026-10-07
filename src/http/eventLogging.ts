@@ -63,9 +63,9 @@ export function getAdminEventSubject(
 
   const discordGuildId = getStringProperty(event.data, "discord_guild_id");
   const discordUser = event.data.discord_user;
-  const discordUserId = isRecord(discordUser)
-    ? getStringProperty(discordUser, "id")
-    : undefined;
+  const discordUserId =
+    getStringProperty(event.data, "discord_user_id") ??
+    (isRecord(discordUser) ? getStringProperty(discordUser, "id") : undefined);
 
   return {
     ...(discordGuildId ? { discordGuildId } : {}),

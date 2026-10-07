@@ -3,6 +3,7 @@ import {
   type Interaction,
   ActionRowBuilder,
   ButtonBuilder,
+  EmbedBuilder,
   MessageFlags,
   PermissionsBitField,
   PermissionFlagsBits,
@@ -208,6 +209,77 @@ describe("/info", () => {
     expect(message).not.toHaveProperty("flags");
     expect(interaction.deleteReply).toHaveBeenCalledTimes(1);
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it("posts the automatic resource link and custom links together without fetching their URLs", async () => {
+    const response = {
+      found: true,
+      data: {
+        command_name: "drs-preparation",
+        embed: {
+          title: "Prepare for Delubrum Reginae (Savage)",
+          description: "Check the strategy and join our Discord before the run.",
+          color: 5793266,
+          author: {
+            name: "DRS Preparation",
+            url: "https://resources.example.com/group/7c23b50a-538c-48a1-90e9-171efcb8ec29",
+          },
+          timestamp: "2026-09-14T12:00:00+00:00",
+          footer: { text: "FullParty" },
+        },
+        assets: [],
+        components: [
+          {
+            type: 1,
+            components: [
+              {
+                type: 2,
+                style: 5,
+                label: "Open resource",
+                url: "https://resources.example.com/group/7c23b50a-538c-48a1-90e9-171efcb8ec29",
+              },
+              {
+                type: 2,
+                style: 5,
+                label: "Read the strategy",
+                url: "https://example.com/drs-strategy",
+              },
+              {
+                type: 2,
+                style: 5,
+                label: "Join Discord",
+                url: "https://discord.gg/example",
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const fetcher = vi.fn<typeof fetch>(() => Promise.resolve(Response.json(response)));
+    const interaction = command("drs-preparation");
+    await run(interaction, context(fetcher));
+
+    expect(interaction.followUp).toHaveBeenCalledTimes(1);
+    const message = interaction.followUp.mock.calls[0]?.[0] as
+      | ResourceMessage
+      | undefined;
+    const embed = message?.embeds?.[0];
+    if (!(embed instanceof EmbedBuilder)) throw new Error("Expected a resource embed");
+    expect(message?.embeds).toHaveLength(1);
+    expect(embed.toJSON()).toEqual({
+      ...response.data.embed,
+      timestamp: "2026-09-14T12:00:00.000Z",
+    });
+    expect(JSON.stringify(message?.components)).toBe(
+      JSON.stringify(response.data.components),
+    );
+    expect(message).not.toHaveProperty("flags");
+    expect(message?.files).toEqual([]);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    const request = fetcher.mock.calls[0];
+    if (!request) throw new Error("Expected a FullParty API request");
+    expect(fetchUrl(request[0])).toBe(
+      "https://fullparty.gg/api/integrations/resources/drs-preparation",
+    );
   });
   it("does not add public URLs/buttons to restricted resources", async () => {
     const ctx = context(() =>

@@ -232,6 +232,100 @@ For debugging, the bot stores the most recent signed `POST /events` payload or
 the latest `/link`, `/applications`, or `/runs` API response/error in memory.
 Run `/payload` to view it; payloads are not sent as automatic DMs.
 
+### Clean up a completed or cancelled run
+
+Send a signed `POST /events` request when a run completes:
+
+```json
+{
+  "event": "discord.guild.run_completed",
+  "data": {
+    "discord_guild_id": "123456789012345678",
+    "run_id": 123
+  }
+}
+```
+
+Use `discord.guild.run_cancelled` for a cancelled run. Cleanup looks up and deletes
+the existing role mapped to that guild/run. The guild ID must be a nonempty string
+and the run ID a positive integer. Participant data is ignored; missing or malformed
+rosters cannot prevent deletion. Optional activity/group metadata is used for logs
+when valid and ignored otherwise. Reminder events still validate participant data
+for role assignment and nickname syncing.
+
+When the automation queue is configured, the response confirms the cleanup job
+was queued; otherwise it contains the cleanup result. Repeated cleanup attempts
+skip a role whose mapping is already marked deleted. Requests previously rejected
+with HTTP 400 were not queued and must be resent after deploying the fix.
+
+### Sync one run participant
+
+The website can request a role/nickname update for one participant by sending a
+signed `POST /events` request with this JSON:
+
+```json
+{
+  "event": "discord.guild.run_participant_sync",
+  "requestId": "run-123-user-234567890123456789",
+  "data": {
+    "discord_guild_id": "123456789012345678",
+    "discord_user_id": "234567890123456789",
+    "nickname": "Character Name [Twintania]",
+    "run_id": 123
+  }
+}
+```
+
+Use the same `Content-Type`, `X-FullParty-Timestamp`, and `X-FullParty-Signature`
+headers and HMAC calculation documented above. Discord IDs must be strings;
+`run_id` must be a positive integer. `nickname` is the complete desired nickname,
+trimmed and validated to 1–32 characters, with no character/world suffix added.
+
+The bot looks up the **existing active run role** by guild ID and FullParty run ID.
+It does not create a role, call the website for run details, or modify any other
+participant. Nickname changes respect **Sync Discord Names to FF14** in `/setup`.
+The bot needs Manage Roles and a role above the run role; nickname changes also
+need Manage Nicknames and a role above the participant's highest role (the server
+owner cannot be renamed by the bot).
+
+The event runs immediately and returns the outcome of both operations:
+
+```json
+{
+  "event": "discord.guild.run_participant_sync",
+  "ok": true,
+  "requestId": "run-123-user-234567890123456789",
+  "result": {
+    "discordGuildId": "123456789012345678",
+    "discordUserId": "234567890123456789",
+    "runId": 123,
+    "roleId": "345678901234567890",
+    "status": "completed",
+    "role": { "status": "updated" },
+    "nickname": { "status": "updated" }
+  }
+}
+```
+
+Each operation has status `updated`, `unchanged`, `skipped` (nickname syncing
+disabled), or `failed`. Failures include `errorCode` and `message`. The overall
+`result.status` is `completed`, `partial`, or `failed`; **HTTP 200 / `ok: true` means
+the event was processed, not that both Discord changes succeeded**. A failure in
+one operation does not prevent the other. Results appear in automation telemetry
+and the configured bot-log channel; individual failures use the failure reporter.
+
+Missing/deleted run mappings return HTTP 409 with `run_role_not_active`. A tracked
+role missing from Discord returns 409 with `run_role_unavailable`. A user who is
+not in the server returns 404 with `guild_member_not_found`. Invalid payloads
+return 400; unavailable run-role storage returns 503. These checks happen before
+either update. Permission failures during updates are reported in the result.
+
+The website can retry after resolving a failure: existing membership and an
+already-matching nickname are left alone. `requestId` is a tracing value, not a
+deduplication key; retries recheck the current state, and a new nickname for the
+same participant/run is applied. Deploy/restart the bot to enable this event;
+the event itself needs no Discord command registration.
+
 ## Guild setup
 
 Server admins can run:
@@ -328,6 +422,27 @@ If `/link` is run without a token, the bot explains where to generate the right
 code: user settings for account linking, or the group Discord linking flow for
 server linking. If a FullParty-backed command is used before the Discord user is
 linked, the bot prompts them to run `/link token:<code>` first.
+
+## Copying role membership
+
+Use the server-only `/rolesync` command to give a role to every member who has another
+role. Select the roles in Discord's role picker (you can search by name or ID):
+
+```text
+/rolesync give-role-id:runpingsA to-users-with-role-id:runpingsB
+```
+
+This adds `runpingsA` to members with `runpingsB`, including offline members. It keeps
+`runpingsB` and every other existing role. Members who already have `runpingsA` are
+skipped, so the command can be rerun. The private result reports matched, added,
+already-assigned, and failed counts; individual failures are logged and do not stop
+the remaining assignments. This is a one-time copy, not ongoing synchronization.
+
+The caller and bot need **Manage Roles**. The destination role must be below the
+bot's highest role and the caller's highest role (except for the server owner).
+Discord-managed roles and `@everyone` cannot be the destination. No FullParty link
+is required. The bot's **Server Members Intent** must be enabled to fetch all members.
+Register the new command after deployment with `npm run commands:deploy:global`.
 
 ## Discord install model
 

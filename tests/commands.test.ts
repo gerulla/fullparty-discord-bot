@@ -21,6 +21,7 @@ describe("commands", () => {
       "ping",
       "postruns",
       "payload",
+      "rolesync",
       "runs",
       "setup",
     ]);

@@ -16,7 +16,11 @@ import { buildRunReminderNicknameSyncLogMessage } from "./presentation/nickname.
 import type { NicknameSyncResult } from "./results.js";
 import type { GuildRunReminderData } from "./runReminderTypes.js";
 import { recordGuildAutomationIssue } from "./telemetry.js";
-import type { GuildAutomationProcessorOptions, RunReminderFailure } from "./types.js";
+import type {
+  GuildAutomationProcessorOptions,
+  GuildRunReminderMember,
+  RunReminderFailure,
+} from "./types.js";
 
 const discordNicknameLimit = 32;
 
@@ -78,20 +82,12 @@ export async function syncRunReminderNicknames(
     for (const target of targets) {
       try {
         const member = await guild.members.fetch(target.discordUserId);
-        const currentNickname = getCurrentNickname(member);
-
-        if (currentNickname === target.nickname) {
+        if (getCurrentNickname(member) === target.nickname) {
           skippedUserCount += 1;
           continue;
         }
-
-        if (!isNicknameSyncableMember(member)) {
-          throw new Error(
-            `Discord member ${target.discordUserId} cannot have nicknames managed.`,
-          );
-        }
-
-        await member.setNickname(
+        await updateMemberNickname(
+          member,
           target.nickname,
           `FullParty ${data.reminder_type} nickname sync for run ${String(data.run_id)}`,
         );
@@ -156,6 +152,17 @@ type NicknameSyncTarget = {
   discordUserId: string;
   nickname: string;
 };
+
+export async function updateMemberNickname(
+  member: Pick<GuildRunReminderMember, "nickname" | "displayName" | "setNickname">,
+  nickname: string,
+  reason: string,
+): Promise<void> {
+  if (!isNicknameSyncableMember(member)) {
+    throw new Error("This Discord member cannot have nicknames managed.");
+  }
+  await member.setNickname(nickname, reason);
+}
 
 function getRunReminderNicknameTargets(data: GuildRunReminderData): NicknameSyncTarget[] {
   const targetsByUserId = new Map<string, NicknameSyncTarget>();

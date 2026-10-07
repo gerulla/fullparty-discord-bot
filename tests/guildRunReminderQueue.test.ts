@@ -91,7 +91,6 @@ describe("SqliteGuildRunReminderQueue", () => {
     const completedResult = await queue.enqueue({
       data: {
         discord_guild_id: "guild-id",
-        participants: [],
         run_id: 123,
         type: "runs.completed",
       },

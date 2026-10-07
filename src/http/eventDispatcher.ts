@@ -4,6 +4,10 @@ import {
   userAppInstalledMessage,
 } from "../dm/deliveryService.js";
 import { GuildAutomationService } from "../guildAutomation/automationService.js";
+import {
+  guildRunParticipantSyncDataSchema,
+  runParticipantSyncEvent,
+} from "../guildAutomation/runParticipantSyncTypes.js";
 import type { GuildRunCompletedData } from "../guildAutomation/runReminderTypes.js";
 import {
   guildRunCompletedDataSchema,
@@ -37,6 +41,11 @@ export async function dispatchEvent(
   options: WebhookServerOptions,
 ): Promise<ActionResult> {
   const automation = new GuildAutomationService(options);
+  if (event.event === runParticipantSyncEvent) {
+    return automation.syncParticipant(
+      guildRunParticipantSyncDataSchema.parse(event.data),
+    );
+  }
   if (event.event === "discord.user_app.installed") {
     const data = userAppEventDataSchema.parse(event.data);
     const discordUserId = data.discord_user.id;

@@ -52,6 +52,7 @@ function createHelpMessage(fullpartyWebBaseUrl: string): string {
     "`/debugassignrunrole run_id:<id>` - Check role eligibility for any run without changing roles.",
     "`/clearrole role:<role>` - Delete a stuck temporary run role.",
     "**Other commands**",
+    "`/rolesync give-role-id:<role> to-users-with-role-id:<role>` - Add a role to members with another role. Requires Manage Roles; keeps existing roles.",
     "`/ping` - Quick bot responsiveness check.",
     "`/help` - Show this message.",
   ].join("\n");

@@ -8,6 +8,11 @@ import type {
 } from "./results.js";
 import { assignUpcomingRaiderRole } from "./roleAssignment.js";
 import { deleteRunRole } from "./roleCleanup.js";
+import { syncRunParticipant } from "./runParticipantSync.js";
+import type {
+  GuildRunParticipantSyncData,
+  RunParticipantSyncResult,
+} from "./runParticipantSyncTypes.js";
 import type { GuildRunCompletedData, GuildRunReminderData } from "./runReminderTypes.js";
 import {
   recordCleanupAutomationTelemetry,
@@ -21,6 +26,12 @@ import type {
 
 export class GuildAutomationService {
   public constructor(private readonly dependencies: GuildAutomationProcessorOptions) {}
+
+  public syncParticipant(
+    data: GuildRunParticipantSyncData,
+  ): Promise<RunParticipantSyncResult> {
+    return syncRunParticipant(this.dependencies, data);
+  }
 
   public async remind(data: GuildRunReminderData): Promise<RunReminderResult> {
     const options = this.dependencies;
