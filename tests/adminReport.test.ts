@@ -105,7 +105,24 @@ async function fixture(startPaused = false) {
     const responseBody: unknown = await response.json();
     return { status: response.status, body: responseBody };
   }
-  return { post, client, context, adminStore, dmStore, limiter, send, fetchUser, logger };
+  async function waitForDelivery(count = 1) {
+    await vi.waitFor(() => {
+      expect(send).toHaveBeenCalledTimes(count);
+    });
+    await limiter.waitForIdle();
+  }
+  return {
+    post,
+    client,
+    context,
+    adminStore,
+    dmStore,
+    limiter,
+    send,
+    fetchUser,
+    logger,
+    waitForDelivery,
+  };
 }
 
 describe("admin report event", () => {
@@ -126,9 +143,10 @@ describe("admin report event", () => {
         ok: true,
         event: adminReportEvent,
         requestId: "issue-123",
-        result: { discordUserId: ownerId, messageId: "report-message", queued: false },
+        result: { discordUserId: ownerId, queued: true, rateLimited: false },
       },
     });
+    await f.waitForDelivery();
     expect(f.fetchUser).toHaveBeenCalledExactlyOnceWith(ownerId);
     expect(f.send).toHaveBeenCalledExactlyOnceWith({
       embeds: [
@@ -150,6 +168,7 @@ describe("admin report event", () => {
         status: "sent",
         messageId: "report-message",
       },
+      { discordUserId: ownerId, status: "queued" },
     ]);
     await expect(f.adminStore.getEvents()).resolves.toMatchObject([
       {
@@ -169,6 +188,7 @@ describe("admin report event", () => {
       await expect(f.post({ ...report, severity })).resolves.toMatchObject({
         status: 200,
       });
+      await f.waitForDelivery();
       expect(f.send.mock.calls[0]?.[0]).toMatchObject({
         embeds: [
           {
@@ -228,13 +248,16 @@ describe("admin report event", () => {
     await expect(
       f.post({ title: "t".repeat(256), message: "m".repeat(4096) }),
     ).resolves.toMatchObject({ status: 200 });
+    await f.waitForDelivery();
     expect(f.send).toHaveBeenCalledOnce();
   });
 
   it("queues a burst after the existing per-user DM allowance", async () => {
     const f = await fixture();
     await f.post();
+    await f.waitForDelivery();
     await f.post();
+    await f.waitForDelivery(2);
     await expect(f.post()).resolves.toMatchObject({
       status: 200,
       body: {
@@ -293,21 +316,23 @@ describe("admin report event", () => {
     ]);
   });
 
-  it("reports a failed DM instead of claiming it was delivered", async () => {
+  it("records Discord delivery failure after acknowledging queue acceptance", async () => {
     const f = await fixture();
     f.send.mockRejectedValueOnce(
       Object.assign(new Error("Cannot send messages to this user"), { code: 50007 }),
     );
     await expect(f.post()).resolves.toMatchObject({
-      status: 500,
-      body: { error: "internal_server_error" },
+      status: 200,
+      body: { result: { queued: true } },
     });
+    await f.waitForDelivery();
     await expect(f.adminStore.getDmDeliveries()).resolves.toMatchObject([
       {
         discordUserId: ownerId,
         status: "failed",
         errorCode: "50007",
       },
+      { discordUserId: ownerId, status: "queued" },
     ]);
     expect(f.dmStore.pending()).toEqual([]);
   });

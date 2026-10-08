@@ -4,10 +4,12 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import type { Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AdminStore } from "@fullparty/admin";
 import type { BotContext } from "../src/bot/context.js";
+import { SqliteDmQueueStore } from "../src/dm/queueStore.js";
+import { UserDmRateLimiter } from "../src/dm/userDmRateLimiter.js";
 import { replyWithAutomationFailureDetails } from "../src/guildAutomation/automationFailureDetails.js";
 import type { GuildRunRoleMapping } from "../src/guildAutomation/runRoleStore.js";
 import { createWebhookServer, stopWebhookServer } from "../src/http/server.js";
@@ -558,7 +560,17 @@ describe("Fullparty webhook server", () => {
   });
 
   it("accepts signed Fullparty integration healthchecks", async () => {
-    const baseUrl = await listen(createTestServer());
+    const context = createContext();
+    const unavailable = () => {
+      throw new Error("Integration healthchecks must not wait for dependencies.");
+    };
+    context.fullparty.health = unavailable;
+    context.failureReporter = { getHealthSummary: unavailable, record: unavailable };
+    context.guildRunReminderQueue = {
+      enqueue: unavailable,
+      getHealthSummary: unavailable,
+    };
+    const baseUrl = await listen(createTestServer({ context }));
     const timestamp = currentTimestamp();
 
     await expect(
@@ -949,6 +961,88 @@ describe("Fullparty webhook server", () => {
     });
     expect(sentMessages).toEqual([expectedMessage, expectedMessage]);
   });
+
+  it.each(["fetch", "send"])(
+    "acknowledges a persisted notification before a slow Discord %s finishes",
+    async (slowOperation) => {
+      const context = createContext();
+      const store = new SqliteDmQueueStore(":memory:");
+      const limiter = new UserDmRateLimiter({ store, logger: context.logger });
+      context.userDmRateLimiter = limiter;
+      let releaseDiscord: () => void = () => undefined;
+      const discordReady = new Promise<void>((resolve) => {
+        releaseDiscord = resolve;
+      });
+      const send = vi.fn(async () => {
+        if (slowOperation === "send") await discordReady;
+        return { id: "notification-message" };
+      });
+      const fetchUser = vi.fn(async () => {
+        if (slowOperation === "fetch") await discordReady;
+        return { send };
+      });
+      const baseUrl = await listen(
+        createTestServer({
+          context,
+          client: { users: { fetch: fetchUser } } as never,
+        }),
+      );
+
+      try {
+        await expect(
+          postAction(
+            baseUrl,
+            {
+              event: "discord.notification.delivery",
+              data: {
+                category: "assignments",
+                discord_user: { id: "discord-user-id" },
+                notification: { category: "assignments", type: "assignments.assigned" },
+                notification_delivery_id: 123,
+                notification_event_id: 456,
+                type: "assignments.assigned",
+              },
+            },
+            AbortSignal.timeout(2000),
+          ),
+        ).resolves.toMatchObject({
+          status: 200,
+          body: {
+            ok: true,
+            event: "discord.notification.delivery",
+            result: {
+              discordUserId: "discord-user-id",
+              notificationDeliveryId: 123,
+              queued: true,
+              rateLimited: false,
+            },
+          },
+        });
+        expect(store.pending()).toMatchObject([
+          {
+            payload: {
+              discordUserId: "discord-user-id",
+              metadata: {
+                eventType: "discord.notification.delivery",
+                notificationType: "assignments.assigned",
+              },
+            },
+          },
+        ]);
+        releaseDiscord();
+        await vi.waitFor(() => {
+          expect(store.pending()).toEqual([]);
+        });
+        expect(fetchUser).toHaveBeenCalledExactlyOnceWith("discord-user-id");
+        expect(send).toHaveBeenCalledOnce();
+      } finally {
+        releaseDiscord();
+        limiter.stop();
+        await limiter.waitForIdle();
+        store.close();
+      }
+    },
+  );
 
   it("queues guild run reminders when a queue is configured", async () => {
     const queuedPayloads: unknown[] = [];
@@ -2763,11 +2857,16 @@ type FetchTextResponse = {
   status: number;
 };
 
-function postAction(baseUrl: string, body: unknown): Promise<FetchJsonResponse> {
+function postAction(
+  baseUrl: string,
+  body: unknown,
+  signal?: AbortSignal,
+): Promise<FetchJsonResponse> {
   const rawBody = JSON.stringify(body);
   const timestamp = currentTimestamp();
 
   return fetchJson(`${baseUrl}/events`, {
+    ...(signal ? { signal } : {}),
     body: rawBody,
     headers: {
       "content-type": "application/json",

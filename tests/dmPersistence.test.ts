@@ -32,11 +32,18 @@ describe("persistent DM delivery", () => {
       message: { content },
       metadata: {},
     });
-    await limiter.send(
-      "123",
-      () => Promise.resolve({ messageId: "first" }),
-      payload("first"),
-    );
+    const firstDelivery = vi.fn(() => Promise.resolve({ messageId: "first" }));
+    await expect(
+      limiter.send("123", firstDelivery, payload("first")),
+    ).resolves.toMatchObject({
+      queued: true,
+      rateLimited: false,
+    });
+    expect(store.pending()).toHaveLength(1);
+    expect(firstDelivery).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(firstDelivery).toHaveBeenCalledOnce();
+    expect(store.pending()).toEqual([]);
     await limiter.send(
       "123",
       () => Promise.resolve({ messageId: "second" }),
@@ -86,6 +93,31 @@ describe("persistent DM delivery", () => {
       metadata: {},
     });
     store.complete(id, "Cannot send messages to this user");
+    expect(store.pending()).toEqual([]);
+  });
+
+  it("rejects acceptance when the message cannot be persisted", async () => {
+    const store = new SqliteDmQueueStore(":memory:");
+    stores.push(store);
+    const limiter = new UserDmRateLimiter({
+      store,
+      logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    });
+    limiters.push(limiter);
+    vi.spyOn(store, "enqueue").mockImplementationOnce(() => {
+      throw new Error("Database unavailable");
+    });
+    const deliver = vi.fn(() => Promise.resolve({ messageId: "test" }));
+
+    await expect(
+      limiter.send("123", deliver, {
+        discordUserId: "123",
+        message: { content: "test" },
+        metadata: {},
+      }),
+    ).rejects.toThrow("Database unavailable");
+    expect(deliver).not.toHaveBeenCalled();
+    expect(limiter.getQueueSnapshot()).toEqual([]);
     expect(store.pending()).toEqual([]);
   });
 });

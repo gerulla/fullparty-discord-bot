@@ -81,16 +81,18 @@ async function handleChatInputCommand(
       status: "succeeded",
     });
   } catch (error) {
+    const diagnostics = getInteractionDiagnostics(interaction, startedAt);
     recordCommandUsage(context, {
       commandName: interaction.commandName,
       discordGuildId: interaction.guildId,
       discordUserId: interaction.user.id,
-      durationMs: Date.now() - startedAt,
+      durationMs: diagnostics.handlerElapsedMs,
       errorCode: getCommandErrorCode(error),
       status: "failed",
     });
     context.logger.error("Command execution failed.", {
       commandName: interaction.commandName,
+      ...diagnostics,
       error,
     });
     recordFailureSafely(context.failureReporter, context.logger, {
@@ -100,6 +102,7 @@ async function handleChatInputCommand(
           ? error.affectsHealth
           : !isExpectedDiscordFailure(error),
       details: {
+        ...diagnostics,
         error: serializeFailureError(error),
       },
       discordGuildId: interaction.guildId ?? undefined,
@@ -109,7 +112,7 @@ async function handleChatInputCommand(
       severity: "error",
       source: "command",
     });
-    await replyWithError(interaction, error, context.fullpartyWebBaseUrl);
+    await replyWithError(interaction, error, context);
   }
 }
 
@@ -134,6 +137,7 @@ async function handleComponentInteraction(
   context: BotContext,
   availableCommands: readonly ChatInputCommand[] | undefined,
 ): Promise<void> {
+  const startedAt = Date.now();
   const command = getComponentCommand(interaction.customId, availableCommands);
 
   if (!command?.handleComponent) {
@@ -150,8 +154,10 @@ async function handleComponentInteraction(
   try {
     await command.handleComponent(interaction, context);
   } catch (error) {
+    const diagnostics = getInteractionDiagnostics(interaction, startedAt);
     context.logger.error("Component interaction failed.", {
       customId: interaction.customId,
+      ...diagnostics,
       error,
     });
     recordFailureSafely(context.failureReporter, context.logger, {
@@ -161,6 +167,7 @@ async function handleComponentInteraction(
           ? error.affectsHealth
           : !isExpectedDiscordFailure(error),
       details: {
+        ...diagnostics,
         error: serializeFailureError(error),
       },
       discordGuildId: interaction.guildId ?? undefined,
@@ -170,7 +177,7 @@ async function handleComponentInteraction(
       severity: "error",
       source: "component",
     });
-    await replyWithError(interaction, error, context.fullpartyWebBaseUrl);
+    await replyWithError(interaction, error, context);
   }
 }
 
@@ -189,6 +196,47 @@ function isSetupComponentInteraction(
 }
 
 async function replyWithError(
+  interaction: ChatInputCommandInteraction | SetupComponentInteraction,
+  error: unknown,
+  context: BotContext,
+): Promise<void> {
+  // Discord has invalidated this interaction. Another response cannot recover it.
+  if (getDiscordApiErrorCode(error) === "10062") return;
+
+  try {
+    await sendErrorReply(interaction, error, context.fullpartyWebBaseUrl);
+  } catch (replyError) {
+    if (getDiscordApiErrorCode(replyError) !== "10062") throw replyError;
+
+    // Keep the original command/component failure; do not count an expired
+    // fallback response as another failed operation.
+    context.logger.warn("Interaction expired before the error reply could be sent.", {
+      interactionId: interaction.id,
+      errorCode: "10062",
+    });
+  }
+}
+
+function getInteractionDiagnostics(
+  interaction: ChatInputCommandInteraction | SetupComponentInteraction,
+  startedAt: number,
+) {
+  const now = Date.now();
+  const createdAt = interaction.createdTimestamp;
+  const hasTimestamp = Number.isFinite(createdAt);
+
+  return {
+    interactionId: interaction.id,
+    processId: process.pid,
+    interactionAgeAtStartMs: hasTimestamp ? startedAt - createdAt : null,
+    interactionAgeAtFailureMs: hasTimestamp ? now - createdAt : null,
+    handlerElapsedMs: now - startedAt,
+    deferred: interaction.deferred,
+    replied: interaction.replied,
+  };
+}
+
+async function sendErrorReply(
   interaction: ChatInputCommandInteraction | SetupComponentInteraction,
   error: unknown,
   fullpartyWebBaseUrl: string,

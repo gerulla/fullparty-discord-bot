@@ -1,5 +1,5 @@
 import { MessageFlags, SlashCommandBuilder, type Interaction } from "discord.js";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { BotContext } from "../src/bot/context.js";
 import type { ChatInputCommand } from "../src/commands/types.js";
@@ -12,6 +12,10 @@ import { createInteractionHandler } from "../src/interactions/handleInteraction.
 import { LatestPayloadStore } from "../src/payloads/latestPayloadStore.js";
 
 describe("createInteractionHandler", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("ignores non-chat-input interactions", async () => {
     const context = createContext();
     const handler = createInteractionHandler(context);
@@ -83,6 +87,97 @@ describe("createInteractionHandler", () => {
         },
       ],
     ]);
+  });
+
+  it.each([{ code: 10062 }, { code: "10062" }, { rawError: { code: 10062 } }])(
+    "does not try to respond again after Discord invalidates the interaction %j",
+    async (details) => {
+      const context = createContext();
+      const reply = vi.fn();
+      const editReply = vi.fn();
+      const followUp = vi.fn();
+      const error = Object.assign(new Error("Unknown interaction"), details);
+      const command = createCommand("known", () => Promise.reject(error));
+      const handler = createInteractionHandler(context, [command]);
+
+      await expect(
+        handler(createInteraction({ reply, editReply, followUp })),
+      ).resolves.toBeUndefined();
+
+      expect(reply).not.toHaveBeenCalled();
+      expect(editReply).not.toHaveBeenCalled();
+      expect(followUp).not.toHaveBeenCalled();
+      expect(context.logCalls).toEqual([["error", "Command execution failed."]]);
+    },
+  );
+
+  it("does not retry an invalidated component interaction", async () => {
+    const context = createContext();
+    const reply = vi.fn();
+    const command = createCommand("known", () => Promise.resolve());
+    const error = Object.assign(new Error("Unknown interaction"), { code: 10062 });
+    command.componentCustomIdPrefix = "setup";
+    command.handleComponent = () => Promise.reject(error);
+    const handler = createInteractionHandler(context, [command]);
+
+    await expect(handler(createComponentInteraction({ reply }))).resolves.toBeUndefined();
+    expect(reply).not.toHaveBeenCalled();
+    expect(context.logCalls).toEqual([["error", "Component interaction failed."]]);
+  });
+
+  it("keeps the original failure when an error reply encounters an expired interaction", async () => {
+    const context = createContext();
+    const replyError = Object.assign(new Error("Unknown interaction"), { code: 10062 });
+    const reply = vi.fn(() => Promise.reject(replyError));
+    const command = createCommand("known", () =>
+      Promise.reject(new Error("Original failure")),
+    );
+    const handler = createInteractionHandler(context, [command]);
+
+    await expect(handler(createInteraction({ reply }))).resolves.toBeUndefined();
+    expect(reply).toHaveBeenCalledOnce();
+    expect(context.logCalls).toEqual([
+      ["error", "Command execution failed."],
+      ["warn", "Interaction expired before the error reply could be sent."],
+    ]);
+  });
+
+  it("still surfaces other error-reply failures", async () => {
+    const context = createContext();
+    const replyError = new Error("Network unavailable");
+    const reply = vi.fn(() => Promise.reject(replyError));
+    const command = createCommand("known", () =>
+      Promise.reject(new Error("Original failure")),
+    );
+    const handler = createInteractionHandler(context, [command]);
+
+    await expect(handler(createInteraction({ reply }))).rejects.toBe(replyError);
+  });
+
+  it("records interaction age separately from time spent in the handler", async () => {
+    const context = createContext();
+    const logError = vi.spyOn(context.logger, "error");
+    const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const error = Object.assign(new Error("Unknown interaction"), { code: 10062 });
+    const command = createCommand("known", () => {
+      now.mockReturnValue(10_250);
+      return Promise.reject(error);
+    });
+    const handler = createInteractionHandler(context, [command]);
+
+    await handler(createInteraction({ createdTimestamp: 6000 }));
+
+    expect(logError).toHaveBeenCalledWith("Command execution failed.", {
+      commandName: "known",
+      interactionId: "interaction-id",
+      processId: process.pid,
+      interactionAgeAtStartMs: 4000,
+      interactionAgeAtFailureMs: 4250,
+      handlerElapsedMs: 250,
+      deferred: false,
+      replied: false,
+      error,
+    });
   });
 
   it("tells unlinked users to connect their account", async () => {
@@ -307,6 +402,7 @@ type TestContext = BotContext & {
 
 type FakeInteractionOptions = {
   commandName?: string;
+  createdTimestamp?: number;
   customId?: string;
   deferred?: boolean;
   editReply?: (...args: unknown[]) => Promise<void>;
@@ -364,6 +460,8 @@ function createInteraction(options: FakeInteractionOptions = {}): Interaction {
 
   return {
     commandName: options.commandName ?? "known",
+    id: "interaction-id",
+    createdTimestamp: options.createdTimestamp ?? Date.now(),
     deferred: options.deferred ?? false,
     editReply: options.editReply ?? editReply.fn,
     followUp: options.followUp ?? followUp.fn,

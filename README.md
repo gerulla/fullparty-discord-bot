@@ -111,6 +111,9 @@ readable errors; diagnostic details go through the existing failure reporter.
 - SQLite migrations run automatically. Back up the database before deployment;
   do not delete it for this upgrade. Old incompatible template-override tables
   are retained with a `_legacy` suffix for recovery.
+- Webhook DMs are saved to the persistent queue before HTTP 200 is returned,
+  including messages within the per-user allowance. Discord delivery runs in the
+  background so slow Discord requests do not hold the webhook response open.
 - Pending notification DMs and cooldown timestamps survive restarts. An abrupt
   crash between Discord accepting a DM and the local completion write can still
   cause a repeat delivery; this is not exactly-once delivery. Failed DM jobs are
@@ -228,6 +231,11 @@ message service. Supported notification copy lives in
 `src/notifications/notificationCopy.json`; unknown notification types fall back
 to a readable title generated from the type key.
 
+In the running bot, HTTP 200 with `result.queued: true` acknowledges that the DM
+has been saved for background delivery; it does not confirm that Discord has
+received it. `result.rateLimited` indicates whether the per-user cooldown is
+currently active. Discord delivery failures appear in bot logs and DM telemetry.
+
 For debugging, the bot stores the most recent signed `POST /events` payload or
 the latest `/link`, `/applications`, or `/runs` API response/error in memory.
 Run `/payload` to view it; payloads are not sent as automatic DMs.
@@ -262,10 +270,10 @@ The DM is an embed with a severity color and timestamp. Invalid data returns HTT
 
 Delivery uses the existing durable DM queue and per-user limit (by default, two DMs
 per five minutes, shared with other DMs to that account). HTTP 200 with
-`result.messageId` means sent; `result.queued: true` means accepted for later
-delivery, with `queuePosition` and `nextAttemptAt` in the result. Events and DM
-outcomes appear in admin telemetry. Immediate Discord delivery failures return an
-error; failures after queueing are recorded in the bot logs and DM telemetry.
+`result.queued: true` means saved for background delivery, with `queuePosition`
+and `nextAttemptAt` in the result. Events and DM outcomes appear in admin telemetry.
+Queue persistence failures return an error; Discord delivery failures after
+acceptance are recorded in the bot logs and DM telemetry.
 The recipient must allow DMs from the bot.
 
 `requestId` is for tracing, not deduplication: resending an accepted report can

@@ -45,6 +45,7 @@ export type GuildRunReminderMember = {
 
 export type GuildRunRole = {
   color?: number;
+  colors?: { primaryColor: number };
   comparePositionTo?(role: GuildRunRole): number;
   delete?(reason?: string): Promise<unknown>;
   hoist?: boolean;
@@ -59,7 +60,7 @@ export type GuildRunRole = {
 };
 
 export type GuildRoleCreateOptions = {
-  color?: number;
+  colors?: { primaryColor: number };
   hoist?: boolean;
   mentionable?: boolean;
   name: string;

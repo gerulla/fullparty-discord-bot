@@ -53,8 +53,9 @@ export async function createRunRoleFromTemplate(
     reason: `FullParty temporary run role for run ${String(runId)}.`,
   };
 
-  if (typeof templateRole.color === "number") {
-    createOptions.color = templateRole.color;
+  const primaryColor = templateRole.colors?.primaryColor ?? templateRole.color;
+  if (typeof primaryColor === "number") {
+    createOptions.colors = { primaryColor };
   }
 
   if (typeof templateRole.hoist === "boolean") {

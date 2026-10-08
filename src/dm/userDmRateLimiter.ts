@@ -21,7 +21,7 @@ export type UserDmQueuedResult = {
   nextAttemptAt: string;
   queuePosition: number;
   queued: true;
-  rateLimited: true;
+  rateLimited: boolean;
 };
 
 export type UserDmRateLimiterResult<T extends Record<string, unknown>> =
@@ -100,7 +100,10 @@ export class UserDmRateLimiter {
     if (jobId !== undefined) operation = this.persistedOperation(jobId, operation);
     const queue = this.queues.get(discordUserId);
 
+    // Persisted webhook jobs must acknowledge acceptance without waiting for
+    // Discord. The worker handles delivery even when no cooldown is needed.
     if (
+      jobId === undefined &&
       !this.paused &&
       (!queue || queue.length === 0) &&
       !this.processingUserIds.has(discordUserId) &&
@@ -118,9 +121,10 @@ export class UserDmRateLimiter {
       operation,
     });
     this.scheduleDrain(discordUserId, delayMs);
-    this.logger.debug("User DM rate limit reached; queued message.", {
+    this.logger.debug("User DM queued for delivery.", {
       discordUserId,
       queuePosition,
+      rateLimited: delayMs > 0,
     });
 
     return {
@@ -128,7 +132,7 @@ export class UserDmRateLimiter {
       nextAttemptAt: new Date(Date.now() + delayMs).toISOString(),
       queuePosition,
       queued: true,
-      rateLimited: true,
+      rateLimited: delayMs > 0,
     };
   }
 

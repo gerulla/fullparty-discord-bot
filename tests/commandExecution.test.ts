@@ -1362,6 +1362,7 @@ describe("command execution", () => {
     context.guildRunRoles = createMemoryRunRoleStore();
     const templateRole = {
       color: 0x3b82f6,
+      colors: { primaryColor: 0x22c55e },
       hoist: false,
       id: "template-role-id",
       mentionable: false,
@@ -1414,6 +1415,8 @@ describe("command execution", () => {
                       roleId === "template-role-id" ? templateRole : undefined,
                   },
                   create: (options: { name: string }) => {
+                    expect(options).toMatchObject({ colors: { primaryColor: 0x22c55e } });
+                    expect(options).not.toHaveProperty("color");
                     createdRoles.push(options.name);
                     return Promise.resolve(runRole);
                   },
