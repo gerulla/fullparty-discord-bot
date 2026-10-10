@@ -11,15 +11,18 @@
     "node": ">=22.12.0"
   },
   "scripts": {
+    "preview:discord": "node scripts/discord-preview/build.mjs && node scripts/discord-preview/serve.mjs",
+    "preview:discord:test": "node --test scripts/discord-preview/workshop.test.mjs",
     "admin:build": "npm run build --workspace @fullparty/admin",
     "admin:build:server": "npm run build:server --workspace @fullparty/admin",
     "admin:dev": "npm run dev --workspace @fullparty/admin",
     "admin:preview": "npm run preview --workspace @fullparty/admin",
-    "dev": "node dist/index.js",
-    "dev:build": "npm run build && node dist/index.js",
-    "predev:watch": "npm run admin:build:server",
-    "dev:watch": "tsx watch src/index.ts",
-    "start": "node dist/index.js",
+    "predev": "npm run build",
+    "dev": "node --env-file-if-exists=.env dist/index.js",
+    "dev:build": "npm run dev",
+    "predev:watch": "npm run admin:build",
+    "dev:watch": "node --env-file-if-exists=.env --import tsx --watch src/index.ts",
+    "start": "node --env-file-if-exists=.env dist/index.js",
     "build": "npm run admin:build && tsc -p tsconfig.build.json",
     "build:bot": "npm run admin:build:server && tsc -p tsconfig.build.json",
     "typecheck": "npm run admin:build:server && tsc --noEmit && npm run typecheck --workspace @fullparty/admin",
@@ -39,14 +42,14 @@
   },
   "dependencies": {
     "@fullparty/admin": "0.1.0",
-    "discord.js": "^14.26.4",
+    "discord.js": "^14.27.0",
     "dotenv": "^17.4.2",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^25.9.1",
-    "@vitest/coverage-v8": "^4.1.7",
+    "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^10.4.0",
     "eslint-plugin-vue": "^10.11.0",
     "globals": "^17.6.0",
@@ -54,7 +57,7 @@
     "tsx": "^4.22.3",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.60.0",
-    "vitest": "^4.1.7",
+    "vitest": "^4.1.11",
     "vue-tsc": "^3.3.11"
   }
 }

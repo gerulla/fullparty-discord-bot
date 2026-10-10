@@ -1,6 +1,11 @@
 import { openSqliteDatabase } from "../database/sqlite.js";
 import { readScheduleSettings, writeScheduleSettings } from "../guildSchedule/store.js";
-import { scheduleIntervalDaysSchema } from "../guildSchedule/settings.js";
+import {
+  getScheduleMode,
+  scheduleFormatSchema,
+  scheduleIntervalDaysSchema,
+  type ScheduleFormat,
+} from "../guildSchedule/settings.js";
 import {
   createDefaultGuildSettings,
   type GuildRoleTemplateOverride,
@@ -17,8 +22,10 @@ type GuildSettingsRow = {
   bot_log_channel_id: string | null;
   bot_moderator_role_id: string | null;
   guild_id: string;
+  group_slug: string | null;
   linked_at: string | null;
   run_announcement_channel_id: string | null;
+  schedule_format: ScheduleFormat;
   sync_discord_names_to_ff14: number;
   upcoming_raider_role_id: string | null;
   updated_at: string | null;
@@ -51,8 +58,10 @@ export class SqliteGuildSettingsStore implements GuildSettingsStore {
             bot_log_channel_id,
             bot_moderator_role_id,
             guild_id,
+            group_slug,
             linked_at,
             run_announcement_channel_id,
+            schedule_format,
             sync_discord_names_to_ff14,
             upcoming_raider_role_id,
             updated_at
@@ -92,17 +101,21 @@ export class SqliteGuildSettingsStore implements GuildSettingsStore {
             bot_log_channel_id,
             bot_moderator_role_id,
             guild_id,
+            group_slug,
             linked_at,
             run_announcement_channel_id,
+            schedule_format,
             sync_discord_names_to_ff14,
             upcoming_raider_role_id,
             updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(guild_id) DO UPDATE SET
             bot_log_channel_id = excluded.bot_log_channel_id,
             bot_moderator_role_id = excluded.bot_moderator_role_id,
+            group_slug = excluded.group_slug,
             linked_at = excluded.linked_at,
             run_announcement_channel_id = excluded.run_announcement_channel_id,
+            schedule_format = excluded.schedule_format,
             sync_discord_names_to_ff14 = excluded.sync_discord_names_to_ff14,
             upcoming_raider_role_id = excluded.upcoming_raider_role_id,
             updated_at = excluded.updated_at
@@ -112,8 +125,10 @@ export class SqliteGuildSettingsStore implements GuildSettingsStore {
           next.botLogChannelId ?? null,
           next.botModeratorRoleId ?? null,
           next.guildId,
+          next.groupSlug ?? null,
           next.linkedAt ?? null,
           next.runAnnouncementChannelId ?? null,
+          next.scheduleFormat ?? "plain",
           next.syncDiscordNamesToFf14 ? 1 : 0,
           next.upcomingRaiderRoleId ?? null,
           next.updatedAt ?? null,
@@ -221,9 +236,12 @@ function mergeGuildSettingsPatch(
   current: GuildSettings,
   patch: GuildSettingsPatch,
 ): GuildSettings {
+  if (patch.scheduleFormat !== undefined)
+    scheduleFormatSchema.parse(patch.scheduleFormat);
   const next: GuildSettings = {
     ...current,
     guildId,
+    scheduleFormat: patch.scheduleFormat ?? current.scheduleFormat ?? "plain",
     syncDiscordNamesToFf14:
       patch.syncDiscordNamesToFf14 ?? current.syncDiscordNamesToFf14,
     updatedAt: new Date().toISOString(),
@@ -244,19 +262,28 @@ function mergeGuildSettingsPatch(
   );
   const runAnnouncementChannelId = getPatchValue(
     patch,
-    "runAnnouncementChannelId",
+    Object.prototype.hasOwnProperty.call(patch, "runAnnouncementChannelId")
+      ? "runAnnouncementChannelId"
+      : "scheduleRefreshChannelId",
     current.runAnnouncementChannelId,
   );
   const linkedAt = getPatchValue(patch, "linkedAt", current.linkedAt);
-  const scheduleChannelId = getPatchValue(
-    patch,
-    "scheduleRefreshChannelId",
-    current.scheduleRefreshChannelId,
-  );
-  if (scheduleChannelId) next.scheduleRefreshChannelId = scheduleChannelId;
+  const groupSlug = getPatchValue(patch, "groupSlug", current.groupSlug);
+  if (groupSlug) next.groupSlug = groupSlug;
+  else delete next.groupSlug;
+  if (runAnnouncementChannelId) next.scheduleRefreshChannelId = runAnnouncementChannelId;
   else delete next.scheduleRefreshChannelId;
-  if (patch.scheduleRefreshEnabled !== undefined)
-    next.scheduleRefreshEnabled = patch.scheduleRefreshEnabled;
+  if (patch.scheduleMode !== undefined || patch.scheduleRefreshEnabled !== undefined) {
+    const currentMode = getScheduleMode(current);
+    next.scheduleMode =
+      patch.scheduleMode ??
+      (patch.scheduleRefreshEnabled
+        ? currentMode === "disabled"
+          ? "timed_refresh"
+          : currentMode
+        : "disabled");
+    next.scheduleRefreshEnabled = next.scheduleMode !== "disabled";
+  }
   if (patch.scheduleRefreshIntervalDays !== undefined)
     next.scheduleRefreshIntervalDays = patch.scheduleRefreshIntervalDays;
   const upcomingRaiderRoleId = getPatchValue(
@@ -309,6 +336,8 @@ function getPatchValue(
     | "syncDiscordNamesToFf14"
     | "scheduleRefreshEnabled"
     | "scheduleRefreshIntervalDays"
+    | "scheduleMode"
+    | "scheduleFormat"
   >,
   currentValue: string | undefined,
 ): string | null | undefined {
@@ -318,6 +347,7 @@ function getPatchValue(
 function rowToGuildSettings(row: GuildSettingsRow): GuildSettings {
   const settings: GuildSettings = {
     guildId: row.guild_id,
+    scheduleFormat: row.schedule_format,
     syncDiscordNamesToFf14: row.sync_discord_names_to_ff14 === 1,
   };
 
@@ -335,6 +365,10 @@ function rowToGuildSettings(row: GuildSettingsRow): GuildSettings {
 
   if (row.linked_at) {
     settings.linkedAt = row.linked_at;
+  }
+
+  if (row.group_slug) {
+    settings.groupSlug = row.group_slug;
   }
 
   if (row.upcoming_raider_role_id) {

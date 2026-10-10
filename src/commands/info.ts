@@ -13,10 +13,15 @@ import { createResourceMessage } from "../fullparty/resources/messages.js";
 import { createResourceListMessage } from "../fullparty/resources/listMessage.js";
 import {
   parseResourcePageControl,
+  parseResourceShowControl,
   ResourcePaginationStore,
 } from "../fullparty/resources/pagination.js";
 import { postPublicResourceReply } from "../fullparty/resources/publicReply.js";
 import { GuildResourceService } from "../fullparty/resources/service.js";
+import type {
+  ResourceData,
+  ResourceListResponse,
+} from "../fullparty/resources/schemas.js";
 import { CommandError } from "./commandError.js";
 import type { ChatInputCommand } from "./types.js";
 
@@ -64,11 +69,7 @@ export const infoCommand: ChatInputCommand = {
         interaction.user.id,
         null,
       );
-      await postPublicResourceReply(
-        interaction,
-        createResourceListMessage(resources, sessionId),
-        context.logger,
-      );
+      await showResourceList(interaction, context, resources, sessionId);
       return;
     }
     if (name === "." || name === "..")
@@ -89,31 +90,17 @@ export const infoCommand: ChatInputCommand = {
         interaction.user.id,
         name,
       );
-      await interaction.editReply(createResourceListMessage(result, sessionId, name));
+      await showResourceList(interaction, context, result, sessionId, name);
       return;
     }
-    const resource = result.data;
-    const message = createResourceMessage(resource);
-    if (
-      resource.assets.length &&
-      !interaction.appPermissions.has(PermissionFlagsBits.AttachFiles)
-    ) {
-      throw new CommandError(
-        "I need Attach Files permission in this channel to post this resource's images.",
-        "resource_attach_files_permission",
-      );
-    }
-    const files = await service.downloadAssets(
-      guildId,
-      resource,
-      interaction.attachmentSizeLimit,
-    );
-    await postPublicResourceReply(interaction, { ...message, files }, context.logger);
+    await postResource(interaction, context, service, guildId, result.data);
   },
   async handleComponent(interaction, context) {
     if (!interaction.isButton()) return;
-    const control = parseResourcePageControl(interaction.customId);
-    const session = control ? paginationStore(context).get(control.sessionId) : undefined;
+    const show = parseResourceShowControl(interaction.customId);
+    const control = show ?? parseResourcePageControl(interaction.customId);
+    const store = paginationStore(context);
+    const session = control ? store.get(control.sessionId) : undefined;
     if (!control || session?.guildId !== interaction.guildId) {
       await interaction.reply({
         content: "That resource list control is no longer valid. Run `/info` again.",
@@ -129,24 +116,112 @@ export const infoCommand: ChatInputCommand = {
       });
       return;
     }
-    await interaction.deferUpdate();
-    await requireResourceGuild(interaction, context);
-    const service = new GuildResourceService(context.fullparty);
-    const resources = session.query
-      ? await service.lookup(session.guildId, session.query, control.page)
-      : await service.list(session.guildId, control.page);
-    if (!("meta" in resources)) {
-      throw new CommandError(
-        "An exact match is now available. Run `/info` with your search term again to post it.",
-        "resource_search_changed",
-      );
+    // Capture the clicked resource before awaits: another page change can replace the snapshot.
+    const selectedName =
+      show && session.currentPage === show.page
+        ? session.commandNames?.[show.index]
+        : undefined;
+    // Reserve synchronously so rapid Show clicks cannot publish the resource twice.
+    if (show && !store.beginPost(control.sessionId)) {
+      await interaction.reply({
+        content: "A resource from this list is already being posted. Please wait.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
     }
-    if (!resources.data.length) throw noResourcesFound(Boolean(session.query));
-    await interaction.editReply(
-      createResourceListMessage(resources, control.sessionId, session.query),
-    );
+    try {
+      await interaction.deferUpdate();
+      await requireResourceGuild(interaction, context);
+      const service = new GuildResourceService(context.fullparty);
+      if (show) {
+        const name = selectedName;
+        if (!name || name === "." || name === "..") {
+          throw new CommandError(
+            "That resource selection is no longer valid. Run `/info` again.",
+            "resource_selection_invalid",
+          );
+        }
+        const result = await captureFullpartyCommandPayload({
+          commandName: "info",
+          discordGuildId: session.guildId,
+          payloads: context.payloads,
+          request: () => service.lookup(session.guildId, name),
+        });
+        if (!result.found) {
+          throw new CommandError(
+            "That resource is no longer available. Run `/info` to see the current resources.",
+            "resource_not_found",
+          );
+        }
+        await postResource(interaction, context, service, session.guildId, result.data);
+        // Retire the controls even if deleting the private list failed after posting.
+        store.delete(control.sessionId);
+        return;
+      }
+      const resources = session.query
+        ? await service.lookup(session.guildId, session.query, control.page)
+        : await service.list(session.guildId, control.page);
+      if (!("meta" in resources)) {
+        throw new CommandError(
+          "An exact match is now available. Run `/info` with your search term again to post it.",
+          "resource_search_changed",
+        );
+      }
+      if (!resources.data.length) throw noResourcesFound(Boolean(session.query));
+      // An earlier Show may have completed while this page was being fetched.
+      if (!store.get(control.sessionId)) return;
+      await showResourceList(
+        interaction,
+        context,
+        resources,
+        control.sessionId,
+        session.query,
+      );
+    } finally {
+      if (show) store.releasePost(control.sessionId);
+    }
   },
 };
+
+async function showResourceList(
+  interaction: ChatInputCommandInteraction | ButtonInteraction,
+  context: BotContext,
+  resources: ResourceListResponse,
+  sessionId: string,
+  query: string | null = null,
+): Promise<void> {
+  await interaction.editReply(createResourceListMessage(resources, sessionId, query));
+  paginationStore(context).setPage(
+    sessionId,
+    resources.meta.current_page,
+    resources.data.map((resource) => resource.command_name),
+  );
+}
+
+async function postResource(
+  interaction: ChatInputCommandInteraction | ButtonInteraction,
+  context: BotContext,
+  service: GuildResourceService,
+  guildId: string,
+  resource: ResourceData,
+): Promise<void> {
+  const message = createResourceMessage(resource);
+  if (
+    resource.assets.length &&
+    !interaction.appPermissions.has(PermissionFlagsBits.AttachFiles)
+  ) {
+    throw new CommandError(
+      "I need Attach Files permission in this channel to post this resource's images.",
+      "resource_attach_files_permission",
+    );
+  }
+  const files = await service.downloadAssets(
+    guildId,
+    resource,
+    interaction.attachmentSizeLimit,
+  );
+  await postPublicResourceReply(interaction, { ...message, files }, context.logger);
+}
 
 function noResourcesFound(search = false): CommandError {
   return new CommandError(

@@ -7,7 +7,6 @@ import {
   getRecordValue,
   getStringValue,
   isRecord,
-  isString,
 } from "./values.js";
 
 export type RunCompletionDetails = {
@@ -24,41 +23,6 @@ type RunMilestoneDetails = {
   details: string[];
   label: string;
 };
-
-export function buildRunCompletionFields(
-  completion: RunCompletionDetails | undefined,
-): string[] {
-  if (!completion) {
-    return [];
-  }
-
-  const lines = [
-    completion.completedAt ? `Completed at: ${completion.completedAt}` : undefined,
-    completion.progressRecordedAt &&
-    completion.progressRecordedAt !== completion.completedAt
-      ? `Progress recorded: ${completion.progressRecordedAt}`
-      : undefined,
-    completion.furthestProgress ? `Progress: ${completion.furthestProgress}` : undefined,
-    completion.entryMode ? `Entry mode: ${completion.entryMode}` : undefined,
-    completion.progressNotes ? `Notes: ${completion.progressNotes}` : undefined,
-    completion.progressLinkUrl
-      ? `Progress link: ${completion.progressLinkUrl}`
-      : undefined,
-  ].filter(isString);
-
-  if (completion.milestones.length > 0) {
-    lines.push("Milestones:");
-    lines.push(...completion.milestones.map(formatRunMilestone));
-  }
-
-  return lines;
-}
-
-function formatRunMilestone(milestone: RunMilestoneDetails): string {
-  return milestone.details.length > 0
-    ? `- ${milestone.label}: ${milestone.details.join(", ")}`
-    : `- ${milestone.label}`;
-}
 
 export function getRunCompletionDetails(
   payload: unknown,

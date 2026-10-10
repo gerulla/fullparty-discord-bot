@@ -73,6 +73,22 @@ export const clearRoleCommand: ChatInputCommand = {
       return;
     }
 
+    const trackedRoles = await context.guildRunRoles?.listByGuild?.(guildId);
+    const isTrackedRunRole = trackedRoles?.some(
+      (mapping) =>
+        mapping.discordGuildId === guildId &&
+        mapping.roleId === role.id &&
+        mapping.status === "active",
+    );
+
+    if (!isTrackedRunRole) {
+      await interaction.editReply({
+        content:
+          "I can only clear an active FullParty run role tracked for this server. That role could not be verified; no roles were deleted.",
+      });
+      return;
+    }
+
     try {
       await role.delete(
         `FullParty manual clearrole by Discord user ${interaction.user.id}.`,

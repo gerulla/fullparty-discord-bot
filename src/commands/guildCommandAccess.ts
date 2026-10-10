@@ -18,16 +18,13 @@ export async function requireGuildBotModerator(
     return false;
   }
 
-  if (interaction.memberPermissions.has(PermissionFlagsBits.ManageGuild)) {
+  if (hasGuildBotModeratorAccess(interaction)) {
     return true;
   }
 
   const settings = await context.guildSettings.get(interaction.guildId);
 
-  if (
-    settings.botModeratorRoleId &&
-    memberHasRole(interaction.member, settings.botModeratorRoleId)
-  ) {
+  if (hasGuildBotModeratorAccess(interaction, settings.botModeratorRoleId)) {
     return true;
   }
 
@@ -38,6 +35,19 @@ export async function requireGuildBotModerator(
     flags: MessageFlags.Ephemeral,
   });
   return false;
+}
+
+export function hasGuildBotModeratorAccess(
+  interaction: ChatInputCommandInteraction,
+  botModeratorRoleId?: string,
+): boolean {
+  return (
+    interaction.inGuild() &&
+    (interaction.memberPermissions.has(PermissionFlagsBits.ManageGuild) ||
+      Boolean(
+        botModeratorRoleId && memberHasRole(interaction.member, botModeratorRoleId),
+      ))
+  );
 }
 
 function memberHasRole(member: unknown, roleId: string): boolean {

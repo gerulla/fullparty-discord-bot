@@ -12,14 +12,15 @@ import {
   type ResourceLookupResponse,
 } from "./schemas.js";
 import { ResourceAssetError } from "./assetDownload.js";
+import { resolveResourceListMetadata } from "./listMetadata.js";
 
 type ResourceApi = Pick<
   FullpartyApi,
   "listDiscordGuildResources" | "getDiscordGuildResource" | "getDiscordGuildResourceAsset"
 >;
 
-// Ten entries leave room for long command names and titles in one Discord embed.
-export const resourcePageSize = 10;
+// Eight entries leave room for per-resource V2 sections and pagination controls.
+export const resourcePageSize = 8;
 
 export class GuildResourceService {
   public constructor(private readonly api: ResourceApi) {}
@@ -31,7 +32,7 @@ export class GuildResourceService {
       );
       if (!result.success) throw invalidResponse(result.error);
       validatePagination(result.data, guildId, page);
-      return result.data;
+      return await resolveResourceListMetadata(this.api, guildId, result.data);
     } catch (error) {
       throw resourceRequestError(error, "list");
     }
@@ -54,6 +55,10 @@ export class GuildResourceService {
       if (!result.success) throw invalidResponse(result.error);
       if (!result.data.found) {
         validatePagination(result.data, guildId, page);
+        return {
+          ...(await resolveResourceListMetadata(this.api, guildId, result.data)),
+          found: false,
+        };
       } else if (
         result.data.data.command_name.toLowerCase() !== commandName.toLowerCase()
       ) {

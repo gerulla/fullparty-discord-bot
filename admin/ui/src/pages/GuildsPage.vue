@@ -129,7 +129,7 @@ const {
               <dd>{{ formatSettingValue(selectedGuild.guild.botLogChannelId) }}</dd>
             </div>
             <div>
-              <dt>Member-Facing Channel</dt>
+              <dt>Schedule Channel</dt>
               <dd>
                 {{ formatSettingValue(selectedGuild.guild.runAnnouncementChannelId) }}
               </dd>

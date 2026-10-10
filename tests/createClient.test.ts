@@ -7,6 +7,47 @@ import { FullpartyApiClient } from "../src/fullparty/client.js";
 import { LatestPayloadStore } from "../src/payloads/latestPayloadStore.js";
 
 describe("createBotClient", () => {
+  it("routes owner !json DMs through the development preview handler", async () => {
+    const context = createContext();
+    context.developmentJsonEnabled = true;
+    context.payloadCommandAllowedUserId = "owner-user-id";
+    const client = createBotClient(context);
+    const calls: unknown[] = [];
+    try {
+      client.emit(
+        Events.MessageCreate as never,
+        {
+          author: { id: "owner-user-id", bot: false },
+          channelId: "owner-dm",
+          content: '!json {"content":"Preview works"}',
+          inGuild: () => false,
+          client: {
+            rest: {
+              post: (route: string, options: unknown) => {
+                calls.push([route, options]);
+                return Promise.resolve({});
+              },
+            },
+          },
+        } as never,
+      );
+      await flushPromises();
+      expect(calls).toEqual([
+        [
+          "/channels/owner-dm/messages",
+          {
+            body: {
+              content: "Preview works",
+              flags: 0,
+              allowed_mentions: { parse: [], replied_user: false },
+            },
+          },
+        ],
+      ]);
+    } finally {
+      await client.destroy();
+    }
+  });
   it("registers Discord lifecycle and interaction listeners", () => {
     const context = createContext();
     const client = createBotClient(context);
@@ -20,7 +61,7 @@ describe("createBotClient", () => {
     expect(client.listenerCount(Events.MessageCreate)).toBe(1);
 
     client.emit(Events.ClientReady, {
-      application: { id: "application-id" },
+      application: { id: "application-id", emojis: { fetch: () => Promise.resolve() } },
       user: { tag: "Fullparty#0001" },
     } as unknown as Client<true>);
 

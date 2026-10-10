@@ -50,9 +50,9 @@ export function createGuildHealth(
 
   if (guild.linked && !guild.runAnnouncementChannelId) {
     addIssue({
-      key: "member_facing_channel_missing",
+      key: "schedule_channel_missing",
       occurredAt: guild.updatedAt,
-      reason: "Member-Facing Channel is not configured.",
+      reason: "Schedule Channel is not configured.",
       severity: "warn",
       status: "degraded",
     });

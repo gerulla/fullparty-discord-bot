@@ -5,6 +5,7 @@ import {
   SlashCommandBuilder,
 } from "discord.js";
 
+import { createGuildLinkRequiredMessage } from "../discord/linkMessages.js";
 import { captureFullpartyCommandPayload } from "../fullparty/commandPayloadCapture.js";
 import {
   createGuildUpcomingRunsMessage,
@@ -45,9 +46,8 @@ export const guildRunsCommand: ChatInputCommand = {
 
     if (!settings.linkedAt) {
       await interaction.reply({
-        content:
-          "This Discord server is not linked to a FullParty group yet. Use `/link token:<code>` with a server link token from FullParty first.",
-        flags: MessageFlags.Ephemeral,
+        ...createGuildLinkRequiredMessage(),
+        flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
       });
       return;
     }
@@ -101,9 +101,8 @@ export const guildRunsCommand: ChatInputCommand = {
 
       if (!settings.linkedAt) {
         await interaction.reply({
-          content:
-            "This Discord server is not linked to a FullParty group anymore. Use `/link token:<code>` with a server link token from FullParty first.",
-          flags: MessageFlags.Ephemeral,
+          ...createGuildLinkRequiredMessage(),
+          flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
         });
         return;
       }

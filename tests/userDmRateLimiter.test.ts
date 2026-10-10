@@ -9,6 +9,59 @@ describe("UserDmRateLimiter", () => {
     vi.useRealTimers();
   });
 
+  it("drains a default eight-message burst after seconds rather than minutes", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-01T00:00:00.000Z"));
+    const deliveredMessages: string[] = [];
+    const limiter = new UserDmRateLimiter({ logger: createLogger() });
+
+    try {
+      for (let index = 1; index <= 8; index++) {
+        const result = await limiter.send(
+          "discord-user-id",
+          createDelivery(`message-${String(index)}`, deliveredMessages),
+        );
+        expect(result).toMatchObject({
+          queued: index > 5,
+          rateLimited: index > 5,
+        });
+      }
+
+      expect(deliveredMessages).toEqual([
+        "message-1",
+        "message-2",
+        "message-3",
+        "message-4",
+        "message-5",
+      ]);
+      expect(limiter.getQueueSnapshot()).toMatchObject([
+        {
+          nextAttemptAt: "2026-06-01T00:00:05.000Z",
+          queueLength: 3,
+          sentInWindow: 5,
+        },
+      ]);
+
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(deliveredMessages).toHaveLength(5);
+      // Subsequent zero-delay drains run on the next fake-timer tick.
+      await vi.advanceTimersByTimeAsync(3);
+      expect(deliveredMessages).toEqual([
+        "message-1",
+        "message-2",
+        "message-3",
+        "message-4",
+        "message-5",
+        "message-6",
+        "message-7",
+        "message-8",
+      ]);
+      expect(limiter.getQueueSnapshot()).toMatchObject([{ queueLength: 0 }]);
+    } finally {
+      limiter.stop();
+    }
+  });
+
   it("sends the first two DMs immediately and queues later DMs for the window", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-01T00:00:00.000Z"));

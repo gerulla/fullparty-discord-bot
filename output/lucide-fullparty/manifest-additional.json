@@ -1,0 +1,43 @@
+{
+  "color": "#A07AC7",
+  "size": 256,
+  "strokeWidth": 2,
+  "background": "transparent",
+  "icons": [
+    {
+      "filename": "flag",
+      "label": "Flag",
+      "lucide": "flag",
+      "source": "https://lucide.dev/icons/flag",
+      "sourceSha256": "e99f1de2fea87cd2e3decc28a1f021a2a8182f907b3b350f604909de2030d8b9"
+    },
+    {
+      "filename": "pin",
+      "label": "Pin",
+      "lucide": "pin",
+      "source": "https://lucide.dev/icons/pin",
+      "sourceSha256": "55e8e5e04bcb671179fc1dd589abf09cf6a1e71301ff14eb739419cfab6011e7"
+    },
+    {
+      "filename": "clock",
+      "label": "Clock",
+      "lucide": "clock",
+      "source": "https://lucide.dev/icons/clock",
+      "sourceSha256": "e9d3e3acf4d1c280fcf8092293439dc0a4756a908ceb859de144b12451cd1cb9"
+    },
+    {
+      "filename": "edit",
+      "label": "Edit",
+      "lucide": "square-pen",
+      "source": "https://lucide.dev/icons/square-pen",
+      "sourceSha256": "09bdac7fdb94058246a5d3132eea0976e690d01694179ab6f474faa2c21de59a"
+    },
+    {
+      "filename": "chart",
+      "label": "Chart",
+      "lucide": "chart-no-axes-combined",
+      "source": "https://lucide.dev/icons/chart-no-axes-combined",
+      "sourceSha256": "2f8a708c357488cfde7428d9b055b9bb4a99c08dc71e9296da03ecc19291c4ab"
+    }
+  ]
+}

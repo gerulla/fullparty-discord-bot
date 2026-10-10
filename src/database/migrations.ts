@@ -1,10 +1,16 @@
 import type { DatabaseSync } from "node:sqlite";
 import { automationQueue } from "./migrations/automationQueue.js";
 import { dmQueue } from "./migrations/dmQueue.js";
+import { dmRetries } from "./migrations/dmRetries.js";
+import { dmDeliveryNonce } from "./migrations/dmDeliveryNonce.js";
 import { failures } from "./migrations/failures.js";
 import { guildSettings } from "./migrations/guildSettings.js";
+import { guildGroupSlug } from "./migrations/guildGroupSlug.js";
 import { guildSchedule } from "./migrations/guildSchedule.js";
+import { guildScheduleFormat } from "./migrations/guildScheduleFormat.js";
+import { guildScheduleModes } from "./migrations/guildScheduleModes.js";
 import { memberCache } from "./migrations/memberCache.js";
+import { notificationDeliveryDedup } from "./migrations/notificationDeliveryDedup.js";
 import { runRoles } from "./migrations/runRoles.js";
 
 const migrations = [
@@ -15,6 +21,12 @@ const migrations = [
   failures,
   dmQueue,
   guildSchedule,
+  notificationDeliveryDedup,
+  dmRetries,
+  guildGroupSlug,
+  guildScheduleModes,
+  guildScheduleFormat,
+  dmDeliveryNonce,
 ];
 
 export function migrateBotDatabase(database: DatabaseSync): void {

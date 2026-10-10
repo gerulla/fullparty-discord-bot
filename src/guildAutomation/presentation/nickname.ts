@@ -1,20 +1,14 @@
-import type { APIEmbedField, MessageCreateOptions } from "discord.js";
+import type { MessageCreateOptions } from "discord.js";
 import type { NicknameSyncResult } from "../results.js";
 import type { GuildRunReminderData } from "../runReminderTypes.js";
 import type { SyncStatus } from "./common.js";
-import {
-  createBotLogEmbedMessage,
-  createRunReminderDescription,
-  formatPercent,
-  formatPlural,
-  formatRunReminderSkippedReason,
-} from "./common.js";
+import { formatPlural, formatRunReminderSkippedReason } from "./common.js";
 import {
   createAutomationFailureDetailsContext,
   createAutomationFailureDetailsId,
   createAutomationFailureSection,
-  createFailuresField,
 } from "./failures.js";
+import { createAutomationV2Message, createAutomationV2RunDescription } from "./v2.js";
 
 export function buildRunReminderNicknameSyncLogMessage(
   data: GuildRunReminderData,
@@ -33,66 +27,44 @@ export function buildRunReminderNicknameSyncLogMessage(
     skippedUserCount,
     syncedUserCount,
   });
-  const successfulUpdates = syncedUserCount + skippedUserCount;
-  const fields: APIEmbedField[] = [
-    {
-      inline: true,
-      name: "✅ Successful Updates",
-      value: `${String(syncedUserCount)} ${formatPlural(syncedUserCount, "user")}\nupdated`,
-    },
-    {
-      inline: true,
-      name: "☑️ Already Correct",
-      value: `${String(skippedUserCount)} ${formatPlural(skippedUserCount, "user")}\nunchanged`,
-    },
-    {
-      inline: true,
-      name: "❌ Failed Updates",
-      value: `${String(failedUserCount)} ${formatPlural(failedUserCount, "user")}\nfailed`,
-    },
-    {
-      inline: true,
-      name: "📈 Success Rate",
-      value: `${formatPercent(successfulUpdates, requestedUserCount)}\nhandled`,
-    },
-    {
-      inline: true,
-      name: "🔄 Update Mode",
-      value: "Primary character\nName Surname [World]",
-    },
-  ];
+  const statistics = [
+    "### :fpcheck: Successful Updates",
+    `> ${String(syncedUserCount)} ${formatPlural(syncedUserCount, "user")} updated`,
+    !skippedReason && skippedUserCount > 0
+      ? `> ${String(skippedUserCount)} already correct`
+      : undefined,
+    "### :fperrorx: Failed Updates",
+    `> ${String(failedUserCount)} ${formatPlural(failedUserCount, "user")} failed`,
+    "### :fpupdate: Update Mode",
+    "> Primary character\n> Name Surname [World]",
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n");
+  const note = skippedReason
+    ? `${formatRunReminderSkippedReason(skippedReason)} No nickname updates were attempted.`
+    : failedUserCount > 0
+      ? `${status.titleSuffix === "Failed" ? "No nicknames were updated. Check the failure details below." : "Some nickname updates failed."} Common causes: user left the server, missing Manage Nicknames permission, role hierarchy, or Discord API limits.`
+      : requestedUserCount === 0
+        ? "No nickname updates were needed."
+        : `All ${String(requestedUserCount)} ${formatPlural(requestedUserCount, "user")} have the correct nickname. ${String(syncedUserCount)} ${syncedUserCount === 1 ? "was" : "were"} updated and ${String(skippedUserCount)} ${skippedUserCount === 1 ? "was" : "were"} already correct.`;
 
-  if (skippedReason) {
-    fields.push({
-      inline: false,
-      name: "ℹ️ Note",
-      value: formatRunReminderSkippedReason(skippedReason),
-    });
-  } else if (failedUserCount > 0) {
-    fields.push({
-      inline: false,
-      name: "ℹ️ Note",
-      value:
-        "Some nickname updates failed. Common causes: user left the server, missing Manage Nicknames permission, role hierarchy, or Discord API limits.",
-    });
-  }
-
-  const failureField = createFailuresField(failures);
-
-  if (failureField) {
-    fields.push(failureField);
-  }
-
-  return createBotLogEmbedMessage({
-    color: status.color,
-    description: createRunReminderDescription(data, requestedUserCount, skippedReason),
+  return createAutomationV2Message({
+    failureColor: status.color,
+    description: createAutomationV2RunDescription(
+      data,
+      requestedUserCount,
+      skippedReason,
+    ),
     failureDetailsId: createAutomationFailureDetailsId({
       context: createAutomationFailureDetailsContext(data),
       sections: [createAutomationFailureSection("Nickname Sync Failures", failures)],
       title: "Nickname Sync Failure Details",
     }),
-    fields,
-    title: `🏷️ Nickname Synchronization - ${status.titleSuffix}`,
+    failures,
+    note,
+    runUrl: data.run_url,
+    statistics,
+    title: `:fpnametag: Nickname Synchronization - ${status.titleSuffix === "Complete" ? "Success" : status.titleSuffix}`,
   });
 }
 

@@ -18,6 +18,10 @@ export const appConfigSchema = z.object({
     "data/fullparty-discord-bot-failures.jsonl",
   ),
   DATABASE_PATH: nonEmptyString.default("data/fullparty-discord-bot.sqlite"),
+  DEV_JSON_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
   DISCORD_CLIENT_ID: nonEmptyString,
   DISCORD_COMMAND_REGISTER_SCOPE: z.enum(["global", "guild"]).default("global"),
   DISCORD_GUILD_ID: optionalNonEmptyString,
@@ -57,13 +61,13 @@ export const appConfigSchema = z.object({
   PAYLOAD_COMMAND_ALLOWED_USER_ID: optionalNonEmptyString,
   RUNTIME_LOG_DIRECTORY: nonEmptyString.default("data/runtime-logs"),
   RUNTIME_LOG_RETENTION_DAYS: z.coerce.number().int().min(1).default(30),
-  USER_DM_RATE_LIMIT_COUNT: z.coerce.number().int().min(1).max(10).default(2),
+  USER_DM_RATE_LIMIT_COUNT: z.coerce.number().int().min(1).max(10).default(5),
   USER_DM_RATE_LIMIT_WINDOW_MS: z.coerce
     .number()
     .int()
     .min(1000)
     .max(3_600_000)
-    .default(300_000),
+    .default(5_000),
 });
 
 export type AppConfig = z.infer<typeof appConfigSchema>;
@@ -80,5 +84,9 @@ export function parseConfig(env: Environment = process.env): AppConfig {
     throw new Error(`Invalid environment configuration: ${details}`);
   }
 
-  return result.data;
+  return {
+    ...result.data,
+    DEV_JSON_ENABLED:
+      result.data.NODE_ENV === "development" && result.data.DEV_JSON_ENABLED,
+  };
 }

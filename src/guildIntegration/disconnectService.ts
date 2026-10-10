@@ -20,7 +20,9 @@ export async function disconnectGuildFromFullparty(
   const archivePath = await writeGuildDisconnectArchive(data, archive);
 
   await options.context.guildSettings.update(data.discord_guild_id, {
+    groupSlug: null,
     linkedAt: null,
+    scheduleMode: "disabled",
     scheduleRefreshEnabled: false,
     runRoleTemplateOverrides: [],
   });

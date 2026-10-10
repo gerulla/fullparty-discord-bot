@@ -1,5 +1,6 @@
 import { Client, Events, GatewayIntentBits, Partials, type Message } from "discord.js";
 
+import { handleJsonPreviewMessage } from "../dev/jsonPreview.js";
 import { runReportedTask } from "../health/errorReporter.js";
 import { createInteractionHandler } from "../interactions/handleInteraction.js";
 import type { BotContext } from "./context.js";
@@ -18,6 +19,13 @@ export function createBotClient(context: BotContext): Client {
     context.logger.info("Discord client is ready.", {
       applicationId: readyClient.application.id,
       userTag: readyClient.user.tag,
+    });
+    // Application emojis work in DMs too; fall back to Unicode if loading fails.
+    void readyClient.application.emojis.fetch().catch((error: unknown) => {
+      context.logger.warn(
+        "Unable to load application emojis; using available message icons.",
+        { error },
+      );
     });
   });
 
@@ -110,6 +118,8 @@ export function createBotClient(context: BotContext): Client {
 }
 
 async function handleMessageCreate(message: Message, context: BotContext): Promise<void> {
+  if (await handleJsonPreviewMessage(message, context)) return;
+
   if (message.author.bot || message.content.trim().toLowerCase() !== "!token") {
     return;
   }

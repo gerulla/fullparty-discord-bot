@@ -92,6 +92,7 @@ export class GuildScheduleScheduler {
       context.logger.info("Guild schedule refreshed.", {
         discordGuildId: job.guild_id,
         channelId: job.channel_id,
+        mode: job.mode,
         intervalDays: job.interval_days,
         messageId,
       });

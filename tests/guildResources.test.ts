@@ -1,4 +1,4 @@
-import { EmbedBuilder } from "discord.js";
+import { ComponentType, ContainerBuilder, EmbedBuilder, MessageFlags } from "discord.js";
 import { describe, expect, it, vi } from "vitest";
 import { FullpartyApiClient } from "../src/fullparty/client.js";
 import { createResourceMessage } from "../src/fullparty/resources/messages.js";
@@ -10,16 +10,30 @@ import {
 } from "../src/fullparty/resources/schemas.js";
 import { GuildResourceService } from "../src/fullparty/resources/service.js";
 import { fetchUrl, fetchJsonBody } from "./helpers/http.js";
+import { messageComponents, messageText } from "./helpers/messages.js";
 
 function listResponse(page: number, nextPage: number | null) {
   return {
     data:
       page === 1
         ? [
-            { command_name: "bridges", title: "DRS Bridge Positions" },
-            { command_name: "loadouts", title: "Recommended Loadouts" },
+            {
+              command_name: "bridges",
+              title: "DRS Bridge Positions",
+              embed: {
+                title: "Choose Your Bridge",
+                author: { name: "DRS Bridge Positions" },
+              },
+            },
+            {
+              command_name: "loadouts",
+              embed: {
+                title: "Recommended Loadouts",
+                author: { name: "Raid Preparation" },
+              },
+            },
           ]
-        : [{ command_name: "positions", title: null }],
+        : [{ command_name: "positions", title: null, embed: {} }],
     meta: {
       group_id: 42,
       discord_guild_id: "123",
@@ -51,29 +65,42 @@ describe("FullParty guild resources", () => {
     ).toMatchObject({ found: false, data: [], components: [] });
   });
 
-  it("keeps long names and titles within the embed limit without dropping page entries", () => {
+  it("keeps eight long resource rows within V2 limits without dropping entries", () => {
     const page = listResponse(1, null);
     const message = createResourceListMessage(
       {
         ...page,
         components: [],
-        data: Array.from({ length: 10 }, () => ({
+        data: Array.from({ length: 8 }, () => ({
           command_name: "*".repeat(100),
           title: "*".repeat(256),
+          embed: {
+            title: "*".repeat(256),
+            author: { name: "*".repeat(256) },
+          },
         })),
-        meta: { ...page.meta, per_page: 10, total: 10, last_page: 1 },
+        meta: { ...page.meta, per_page: 8, total: 8, last_page: 1 },
       },
       "session",
       "*".repeat(100),
     );
-    const embed = message.embeds?.[0];
-    if (!(embed instanceof EmbedBuilder)) throw new Error("Expected embed");
-    expect(embed.data.description?.length).toBeLessThanOrEqual(4096);
-    expect(embed.data.description?.match(/\/info name:/gu)).toHaveLength(10);
-    expect(embed.data.description).toContain("...");
+    const components = messageComponents(message);
+    expect(components).toHaveLength(38);
+    expect(
+      components.reduce(
+        (length, component) => length + (component.content?.length ?? 0),
+        0,
+      ),
+    ).toBeLessThanOrEqual(4000);
+    expect(messageText(message).match(/\/info /gu)).toHaveLength(8);
+    expect(messageText(message)).toContain("...");
+    const container = message.components[0];
+    if (container?.type !== ComponentType.Container)
+      throw new Error("Expected container");
+    expect(() => new ContainerBuilder(container).toJSON()).not.toThrow();
   });
 
-  it("validates list link buttons and leaves room for navigation", () => {
+  it("preserves website list links as compact footer links with room for navigation", () => {
     const page = listResponse(1, null);
     const row = {
       type: 1,
@@ -90,7 +117,19 @@ describe("FullParty guild resources", () => {
       ...page,
       components: Array.from({ length: 4 }, () => row),
     });
-    expect(createResourceListMessage(valid, "session").components).toHaveLength(5);
+    const message = createResourceListMessage(valid, "session");
+    expect(
+      messageText(message).match(
+        /\[Open Resources\]\(<https:\/\/resources.fullparty.gg\/group>\)/gu,
+      ),
+    ).toHaveLength(4);
+    const container = message.components[0];
+    if (container?.type !== ComponentType.Container)
+      throw new Error("Expected container");
+    expect(container.components.at(-1)).toMatchObject({
+      type: ComponentType.ActionRow,
+      components: [{ label: "Previous" }, { label: "Next" }],
+    });
     expect(
       resourceListResponseSchema.safeParse({
         ...page,
@@ -105,6 +144,277 @@ describe("FullParty guild resources", () => {
         ],
       }).success,
     ).toBe(false);
+  });
+
+  it("uses separate resource and embed titles, small dividers and indexed Show controls", () => {
+    const message = createResourceListMessage(
+      resourceListResponseSchema.parse(listResponse(1, 2)),
+      "session",
+    );
+    expect(message.components).toHaveLength(1);
+    const container = message.components[0];
+    if (container?.type !== ComponentType.Container)
+      throw new Error("Expected container");
+    expect(container.accent_color).toBe(9912567);
+    expect(container.components[1]).toEqual({
+      type: ComponentType.Separator,
+      divider: true,
+      spacing: 1,
+    });
+    expect(container.components[2]).toEqual({
+      type: ComponentType.Section,
+      components: [
+        {
+          type: ComponentType.TextDisplay,
+          content: "**/info bridges** - Choose Your Bridge\n-# DRS Bridge Positions",
+        },
+      ],
+      accessory: {
+        type: ComponentType.Button,
+        label: "Show",
+        style: 2,
+        custom_id: "info:show:session:1:0",
+      },
+    });
+    expect(container.components[3]).toEqual(container.components[1]);
+    expect(container.components[4]).toMatchObject({
+      type: ComponentType.Section,
+      components: [
+        {
+          content: "**/info loadouts** - Recommended Loadouts\n-# Raid Preparation",
+        },
+      ],
+      accessory: { custom_id: "info:show:session:1:1" },
+    });
+  });
+
+  it("uses the actual embed title and author name over conflicting flat fields", () => {
+    const result = resourceListResponseSchema.parse({
+      ...listResponse(1, null),
+      data: [
+        {
+          command_name: "drs-preparation",
+          title: "Wrong Resource Title",
+          embed_title: "Wrong Embed Title",
+          embed: {
+            title: "Prepare for Delubrum Reginae (Savage)",
+            author: { name: "DRS Preparation" },
+          },
+        },
+      ],
+    });
+    const text = messageText(createResourceListMessage(result, "session"));
+    expect(text).toContain(
+      "**/info drs-preparation** - Prepare for Delubrum Reginae (Savage)\n-# DRS Preparation",
+    );
+    expect(text).not.toContain("Wrong");
+  });
+
+  it("preserves explicit flat title metadata and never invents a resource title", () => {
+    const result = resourceListResponseSchema.parse({
+      ...listResponse(1, null),
+      data: [
+        { command_name: "missing", title: null },
+        { command_name: "null", title: "Resource Title", embed_title: null },
+        { command_name: "legacy", title: "Existing Title" },
+        {
+          command_name: "flat",
+          title: "Resource Title",
+          embed_title: "Embed Title",
+        },
+      ],
+    });
+    const text = messageText(createResourceListMessage(result, "session"));
+    expect(text).toContain("**/info missing**");
+    expect(text).not.toContain("**/info missing**\n-#");
+    expect(text).toContain("**/info null**\n-# Resource Title");
+    expect(text).toContain("**/info legacy** - Existing Title");
+    expect(text).not.toContain("**/info legacy** - Existing Title\n-#");
+    expect(text).toContain("**/info flat** - Embed Title\n-# Resource Title");
+    expect(text).not.toContain("Untitled resource");
+  });
+
+  it("prefers the new explicit titles and respects null or blank resource titles", () => {
+    const result = resourceListResponseSchema.parse({
+      ...listResponse(1, null),
+      data: [
+        {
+          command_name: "current",
+          title: "Old alias",
+          embed_title: "Before entering DRS",
+          resource_title: "DRS Preparation Guide",
+          embed: { title: "Old nested title", author: { name: "Old nested author" } },
+        },
+        ...[null, "   "].map((resource_title, index) => ({
+          command_name: `empty-${String(index)}`,
+          title: "Tank loadout",
+          embed_title: "Tank loadout",
+          resource_title,
+        })),
+        { command_name: "alias", title: "Alias title", resource_title: "Guide title" },
+      ],
+    });
+    const message = createResourceListMessage(result, "session");
+    expect(messageText(message)).toContain(
+      "**/info current** - Before entering DRS\n-# DRS Preparation Guide",
+    );
+    expect(messageText(message)).not.toContain("Old");
+    for (const name of ["empty-0", "empty-1"]) {
+      expect(messageComponents(message)).toContainEqual({
+        type: ComponentType.TextDisplay,
+        content: `**/info ${name}** - Tank loadout`,
+      });
+    }
+    expect(messageText(message)).toContain(
+      "**/info alias** - Alias title\n-# Guide title",
+    );
+  });
+
+  it("omits absent or blank actual embed fields without falling back to flat titles", () => {
+    const result = resourceListResponseSchema.parse({
+      ...listResponse(1, null),
+      data: [
+        { command_name: "empty", title: "Wrong", embed: {} },
+        { command_name: "null", title: "Wrong", embed: null },
+        {
+          command_name: "title-only",
+          title: "Wrong",
+          embed: { title: "Actual Title", author: null },
+        },
+        {
+          command_name: "author-only",
+          title: "Wrong",
+          embed_title: "Wrong",
+          embed: { title: null, author: { name: "Actual Resource" } },
+        },
+        {
+          command_name: "blank",
+          title: "Wrong",
+          embed: { title: "   ", author: { name: "\n " } },
+        },
+      ],
+    });
+    const message = createResourceListMessage(result, "session");
+    const text = messageText(message);
+    expect(text).toContain("**/info title-only** - Actual Title");
+    expect(text).not.toContain("**/info title-only** - Actual Title\n-#");
+    expect(text).toContain("**/info author-only**\n-# Actual Resource");
+    expect(text).not.toContain("Wrong");
+    for (const name of ["empty", "null", "blank"]) {
+      expect(messageComponents(message)).toContainEqual({
+        type: ComponentType.TextDisplay,
+        content: `**/info ${name}**`,
+      });
+    }
+  });
+
+  it("escapes resource labels and search queries without allowing extra layout lines", () => {
+    const result = resourceListResponseSchema.parse({
+      ...listResponse(1, null),
+      data: [
+        {
+          command_name: "*bridge*",
+          title: "Unused Title",
+          embed: {
+            title: "[Link](https://example.com)",
+            author: { name: "\n## Title" },
+          },
+        },
+      ],
+    });
+    const text = messageText(
+      createResourceListMessage(result, "session", "**query**\nline"),
+    );
+    expect(text).toContain("Matches for **\\*\\*query\\*\\* line**");
+    expect(text).toContain("**/info \\*bridge\\*** - \\[Link](https://example.com)");
+    expect(text).not.toContain("\n## Title");
+  });
+
+  it("preserves disabled list-link labels without making them clickable", () => {
+    const result = resourceListResponseSchema.parse({
+      ...listResponse(1, null),
+      components: [
+        {
+          type: 1,
+          components: [
+            {
+              type: 2,
+              style: 5,
+              label: "Unavailable",
+              url: "https://example.com",
+              disabled: true,
+            },
+          ],
+        },
+      ],
+    });
+    const text = messageText(createResourceListMessage(result, "session"));
+    expect(text).toContain("Unavailable (unavailable)");
+    expect(text).not.toContain("https://example.com");
+  });
+
+  it("rejects oversized list links without silently dropping destinations", () => {
+    const result = resourceListResponseSchema.parse({
+      ...listResponse(1, null),
+      components: [
+        {
+          type: 1,
+          components: [
+            {
+              type: 2,
+              style: 5,
+              label: "Resources",
+              url: `https://example.com/${"a".repeat(4000)}`,
+            },
+          ],
+        },
+      ],
+    });
+    expect(() => createResourceListMessage(result, "session")).toThrow("cannot display");
+  });
+
+  it("shows separate useful messages for an empty list and an empty search", () => {
+    const result = resourceListResponseSchema.parse({
+      ...listResponse(1, null),
+      data: [],
+      meta: { ...listResponse(1, null).meta, total: 0, last_page: 1 },
+    });
+    expect(messageText(createResourceListMessage(result, "session"))).toContain(
+      "No resources have been published",
+    );
+    expect(messageText(createResourceListMessage(result, "session", "bridge"))).toContain(
+      "No resources matched your search.",
+    );
+    expect(
+      messageComponents(createResourceListMessage(result, "session")).filter(
+        (component) => component.label === "Show",
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("rejects pages above eight entries in both list and search responses", async () => {
+    const result = {
+      ...listResponse(1, null),
+      data: Array.from({ length: 9 }, () => ({
+        command_name: "bridge",
+        title: "Bridge",
+      })),
+      meta: { ...listResponse(1, null).meta, per_page: 9, total: 9, last_page: 1 },
+    };
+    const service = new GuildResourceService({
+      listDiscordGuildResources: () => Promise.resolve(result),
+      getDiscordGuildResource: () => Promise.resolve({ found: false, ...result }),
+      getDiscordGuildResourceAsset: () => Promise.resolve(Buffer.alloc(0)),
+    });
+    await expect(service.list("123")).rejects.toMatchObject({
+      code: "invalid_resource_response",
+    });
+    await expect(service.lookup("123", "bridge")).rejects.toMatchObject({
+      code: "invalid_resource_response",
+    });
+    expect(() =>
+      createResourceListMessage({ ...result, components: [] }, "session"),
+    ).toThrow("cannot display");
   });
 
   it("POSTs authenticated list requests one page at a time", async () => {
@@ -140,8 +450,8 @@ describe("FullParty guild resources", () => {
       components: [],
     });
     expect(bodies).toEqual([
-      { discord_guild_id: "123", page: 1, per_page: 10 },
-      { discord_guild_id: "123", page: 2, per_page: 10 },
+      { discord_guild_id: "123", page: 1, per_page: 8 },
+      { discord_guild_id: "123", page: 2, per_page: 8 },
     ]);
   });
 
@@ -154,7 +464,7 @@ describe("FullParty guild resources", () => {
       expect(fetchJsonBody(init)).toEqual({
         discord_guild_id: "123",
         page: 1,
-        per_page: 10,
+        per_page: 8,
       });
       expect(new Headers(init?.headers).get("authorization")).toBe(
         "Bearer integration-token",
@@ -304,11 +614,13 @@ describe("FullParty guild resources", () => {
       { ...listResponse(2, null), components: [] },
       "session-id",
     );
-    const embed = message.embeds?.[0];
-    if (!(embed instanceof EmbedBuilder)) throw new Error("Expected an embed builder");
-    expect(message.embeds).toHaveLength(1);
-    expect(embed.data.description).toContain("Untitled resource");
-    expect(embed.data.footer?.text).toBe("3 resources | Page 2/2");
+    expect(message.flags).toBe(MessageFlags.IsComponentsV2);
+    expect(message).not.toHaveProperty("embeds");
+    expect(message).not.toHaveProperty("content");
+    expect(message.allowedMentions).toEqual({ parse: [], repliedUser: false });
+    expect(messageText(message)).toContain("**/info positions**");
+    expect(messageText(message)).toContain("3 resources | Page 2/2");
+    expect(JSON.stringify(message.components)).toContain("info:show:session-id:2:0");
     expect(JSON.stringify(message.components)).toContain("info:previous:session-id:1");
     expect(JSON.stringify(message.components)).toContain("info:next:session-id:2");
   });
@@ -319,15 +631,16 @@ describe("FullParty guild resources", () => {
       { ...result, meta: { ...result.meta, last_page: 1 }, components: [] },
       "session-id",
     );
-    expect(message.components).toHaveLength(1);
-    const controls = JSON.parse(JSON.stringify(message.components)) as {
-      components: { custom_id: string; disabled: boolean }[];
-    }[];
-    const buttons = controls[0]?.components ?? [];
-    expect(buttons.map((button) => button.custom_id)).toEqual([
-      "info:previous:session-id:1",
-      "info:next:session-id:1",
-    ]);
-    expect(buttons.every((button) => button.disabled)).toBe(true);
+    const container = message.components[0];
+    if (container?.type !== ComponentType.Container)
+      throw new Error("Expected container");
+    const controls = container.components.at(-1);
+    if (controls?.type !== ComponentType.ActionRow) throw new Error("Expected controls");
+    expect(controls).toMatchObject({
+      components: [
+        { custom_id: "info:previous:session-id:1", disabled: true },
+        { custom_id: "info:next:session-id:1", disabled: true },
+      ],
+    });
   });
 });

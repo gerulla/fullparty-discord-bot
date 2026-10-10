@@ -1,4 +1,5 @@
 import type { Client, MessageCreateOptions } from "discord.js";
+import { randomBytes } from "node:crypto";
 import type { BotContext } from "../bot/context.js";
 import { recordAdminDmDelivery } from "../admin/telemetryRecorder.js";
 import { HttpError } from "../http/httpError.js";
@@ -6,26 +7,16 @@ import type { UserDmRateLimiterResult } from "./userDmRateLimiter.js";
 import { omitUndefined } from "../lib/definedProperties.js";
 import { getDiscordApiErrorCode, getErrorMessage } from "../lib/errors.js";
 import { isRecord } from "../lib/valueReaders.js";
+import { resolveV2MessageIcons, type MessageEmojiSource } from "../discord/v2.js";
 import {
   dmDeliveryJobSchema,
   type DmDeliveryJob,
   type DmDeliveryResult,
 } from "./deliveryTypes.js";
 
-export const userAppDisconnectedMessage = [
-  "FullParty has disconnected Discord for your account.",
-  "To fully remove the app from Discord, open Discord Settings > Authorized Apps and remove FullParty.",
-].join("\n");
-
-export const userAppInstalledMessage = [
-  "Hey, welcome to FullParty. Your Discord account is connected and ready to go.",
-  "You can use `/runs` to check your upcoming runs and `/applications` to review your FullParty applications right here in DMs.",
-  "I'll also send your FullParty notifications in this DM, so run updates, applications, reminders, and account changes stay easy to find.",
-  "You can disconnect this anytime from your FullParty account settings.",
-].join("\n\n");
-
 type DmDeliveryMetadata = {
   eventType?: string | undefined;
+  notificationDeliveryId?: number | undefined;
   notificationType?: string | undefined;
 };
 
@@ -34,7 +25,7 @@ type SendableUser = {
 };
 
 type DmDeliveryDependencies = {
-  client: Pick<Client, "users">;
+  client: Pick<Client, "users"> & MessageEmojiSource;
   context: Pick<BotContext, "adminStore" | "logger" | "userDmRateLimiter">;
 };
 
@@ -46,7 +37,15 @@ export async function sendUserDm(
 ): Promise<DmDeliveryResult | UserDmRateLimiterResult<DmDeliveryResult>> {
   const job = dmDeliveryJobSchema.parse(
     JSON.parse(
-      JSON.stringify({ discordUserId, message: messageOptions, metadata }),
+      JSON.stringify({
+        discordUserId,
+        message: {
+          ...messageOptions,
+          nonce: randomBytes(12).toString("hex"),
+          enforceNonce: true,
+        },
+        metadata,
+      }),
     ) as unknown,
   );
   const operation = () => deliverStoredDm(options, job);
@@ -128,7 +127,7 @@ async function sendUserDmNow(
     );
   }
 
-  const message = await user.send(messageOptions);
+  const message = await user.send(resolveV2MessageIcons(messageOptions, options.client));
 
   return {
     discordUserId,

@@ -1,0 +1,99 @@
+{
+  "color": "#A07AC7",
+  "size": 256,
+  "strokeWidth": 2,
+  "background": "transparent",
+  "icons": [
+    {
+      "filename": "success-check",
+      "label": "Success",
+      "lucide": "check",
+      "source": "https://lucide.dev/icons/check",
+      "sourceSha256": "7f33acc9a77a61659531044525fc008edebe215bf4dcf1c789c8674ad3277db0"
+    },
+    {
+      "filename": "error-x",
+      "label": "Error",
+      "lucide": "x",
+      "source": "https://lucide.dev/icons/x",
+      "sourceSha256": "4a9cdab38fbb96162e7dace28e33f4ca0e49d8963a6162abc3d4691b7d675117"
+    },
+    {
+      "filename": "update-looping-arrows",
+      "label": "Update",
+      "lucide": "refresh-cw",
+      "source": "https://lucide.dev/icons/refresh-cw",
+      "sourceSha256": "2e10dd403c85a24f163d59fc6151aa21147fe9402e1305dfc8979208caee8944"
+    },
+    {
+      "filename": "note",
+      "label": "Note",
+      "lucide": "sticky-note",
+      "source": "https://lucide.dev/icons/sticky-note",
+      "sourceSha256": "a1370d25eb7dc9c42ca4a69adb82818fec950f1d441f88fd3ea84cd6ac10f875"
+    },
+    {
+      "filename": "document",
+      "label": "Document",
+      "lucide": "file-text",
+      "source": "https://lucide.dev/icons/file-text",
+      "sourceSha256": "52ca55846c202335fb870c8aa23e9345630ec10489303756d62e750f7109605c"
+    },
+    {
+      "filename": "percent",
+      "label": "Percent",
+      "lucide": "percent",
+      "source": "https://lucide.dev/icons/percent",
+      "sourceSha256": "580948bc2c69b84380f0d1e628d85227600886e3f1620effb1ae300b750a9dc0"
+    },
+    {
+      "filename": "at-symbol",
+      "label": "@ symbol",
+      "lucide": "at-sign",
+      "source": "https://lucide.dev/icons/at-sign",
+      "sourceSha256": "a71ec1918c3787172b16949262ca4c4a7c427c045367bb58f2c2cdbd87297c5e"
+    },
+    {
+      "filename": "nametag",
+      "label": "Nametag",
+      "lucide": "id-card",
+      "source": "https://lucide.dev/icons/id-card",
+      "sourceSha256": "b2a55b00b0cb4c7a84f2596610a9240f7d05e4d9cd260ec85028a79c4ab10ced"
+    },
+    {
+      "filename": "flag",
+      "label": "Flag",
+      "lucide": "flag",
+      "source": "https://lucide.dev/icons/flag",
+      "sourceSha256": "e99f1de2fea87cd2e3decc28a1f021a2a8182f907b3b350f604909de2030d8b9"
+    },
+    {
+      "filename": "pin",
+      "label": "Pin",
+      "lucide": "pin",
+      "source": "https://lucide.dev/icons/pin",
+      "sourceSha256": "55e8e5e04bcb671179fc1dd589abf09cf6a1e71301ff14eb739419cfab6011e7"
+    },
+    {
+      "filename": "clock",
+      "label": "Clock",
+      "lucide": "clock",
+      "source": "https://lucide.dev/icons/clock",
+      "sourceSha256": "e9d3e3acf4d1c280fcf8092293439dc0a4756a908ceb859de144b12451cd1cb9"
+    },
+    {
+      "filename": "edit",
+      "label": "Edit",
+      "lucide": "square-pen",
+      "source": "https://lucide.dev/icons/square-pen",
+      "sourceSha256": "09bdac7fdb94058246a5d3132eea0976e690d01694179ab6f474faa2c21de59a"
+    },
+    {
+      "filename": "chart",
+      "label": "Chart",
+      "lucide": "chart-no-axes-combined",
+      "source": "https://lucide.dev/icons/chart-no-axes-combined",
+      "sourceSha256": "2f8a708c357488cfde7428d9b055b9bb4a99c08dc71e9296da03ecc19291c4ab"
+    }
+  ]
+}

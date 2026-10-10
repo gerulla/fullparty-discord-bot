@@ -2,12 +2,22 @@ import {
   ApplicationIntegrationType,
   InteractionContextType,
   MessageFlags,
+  PermissionFlagsBits,
   SlashCommandBuilder,
+  type InteractionEditReplyOptions,
 } from "discord.js";
 
 import { FullpartyApiError } from "../fullparty/client.js";
 import { captureFullpartyCommandPayload } from "../fullparty/commandPayloadCapture.js";
+import {
+  createAccountLinkInstructions,
+  createGuildConnectedMessage,
+  createGuildLinkInstructions,
+  createUserConnectedMessage,
+  type LinkV2Message,
+} from "../discord/linkMessages.js";
 import { recordFailureSafely, serializeFailureError } from "../health/failureReporter.js";
+import { getStringProperty, isRecord } from "../lib/valueReaders.js";
 import type { ChatInputCommand } from "./types.js";
 
 export const linkCommand: ChatInputCommand = {
@@ -34,6 +44,17 @@ export const linkCommand: ChatInputCommand = {
   async execute(interaction, context) {
     const isGuildLink = interaction.inGuild();
 
+    if (
+      isGuildLink &&
+      !interaction.memberPermissions.has(PermissionFlagsBits.ManageGuild)
+    ) {
+      await interaction.reply({
+        content: "You need Manage Server to link this Discord server to FullParty.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
     if (isGuildLink) {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     } else {
@@ -43,9 +64,9 @@ export const linkCommand: ChatInputCommand = {
     const token = interaction.options.getString("token")?.trim();
 
     if (!token) {
-      await interaction.editReply({
-        content: createMissingTokenMessage(isGuildLink, context.fullpartyWebBaseUrl),
-      });
+      await interaction.editReply(
+        createMissingTokenMessage(isGuildLink, context.fullpartyWebBaseUrl),
+      );
       return;
     }
 
@@ -53,12 +74,11 @@ export const linkCommand: ChatInputCommand = {
       content: createLinkValidationMessage(token),
     });
 
+    let response: unknown;
     try {
-      if (isGuildLink) {
-        await linkGuild(interaction, context, token);
-      } else {
-        await linkUser(interaction, context, token);
-      }
+      response = isGuildLink
+        ? await linkGuild(interaction, context, token)
+        : await linkUser(interaction, context, token);
     } catch (error) {
       if (error instanceof FullpartyApiError) {
         recordFailureSafely(context.failureReporter, context.logger, {
@@ -82,7 +102,11 @@ export const linkCommand: ChatInputCommand = {
     }
 
     await interaction.editReply({
-      content: isGuildLink ? guildLinkSuccessMessage : userLinkSuccessMessage,
+      ...(isGuildLink
+        ? createGuildLinkSuccessMessage(context.fullpartyWebBaseUrl, response)
+        : createUserLinkSuccessMessage(context.fullpartyWebBaseUrl, response)),
+      content: null,
+      embeds: [],
     });
   },
 };
@@ -91,7 +115,7 @@ async function linkGuild(
   interaction: Parameters<ChatInputCommand["execute"]>[0],
   context: Parameters<ChatInputCommand["execute"]>[1],
   token: string,
-): Promise<void> {
+): Promise<unknown> {
   const guildId = interaction.guildId;
 
   if (!guildId) {
@@ -101,7 +125,7 @@ async function linkGuild(
   const iconUrl = interaction.guild?.iconURL({ size: 256 }) ?? null;
   const permissions = interaction.appPermissions.bitfield.toString();
 
-  await captureFullpartyCommandPayload({
+  const response = await captureFullpartyCommandPayload({
     commandName: "link",
     discordGuildId: guildId,
     payloads: context.payloads,
@@ -115,17 +139,19 @@ async function linkGuild(
       }),
   });
   await context.guildSettings.update(guildId, {
+    groupSlug: getLinkedGroupSlug(getLinkResponseData(response)) ?? null,
     linkedAt: new Date().toISOString(),
   });
   await context.guildMemberCacheScheduler?.enqueueRefresh(guildId, "guild_linked");
+  return response;
 }
 
 async function linkUser(
   interaction: Parameters<ChatInputCommand["execute"]>[0],
   context: Parameters<ChatInputCommand["execute"]>[1],
   token: string,
-): Promise<void> {
-  await captureFullpartyCommandPayload({
+): Promise<unknown> {
+  return captureFullpartyCommandPayload({
     commandName: "link",
     discordUserId: interaction.user.id,
     payloads: context.payloads,
@@ -145,20 +171,10 @@ async function linkUser(
 function createMissingTokenMessage(
   isGuildLink: boolean,
   fullpartyWebBaseUrl: string,
-): string {
-  if (isGuildLink) {
-    return [
-      "I need a FullParty Discord server link token to connect this server.",
-      `Go to ${fullpartyWebBaseUrl}, create or open the FullParty group you want to connect, then follow the Discord linking process for that group.`,
-      "Once FullParty gives you a code, come back to this server and run `/link token:<code>`.",
-    ].join("\n\n");
-  }
-
-  return [
-    "I need a FullParty Discord link token to connect your account.",
-    `Go to ${fullpartyWebBaseUrl}, open your user settings, and generate a Discord link code.`,
-    "Then come back to this DM and run `/link token:<code>`.",
-  ].join("\n\n");
+): InteractionEditReplyOptions {
+  return isGuildLink
+    ? createGuildLinkInstructions()
+    : createAccountLinkInstructions({ fullpartyWebBaseUrl });
 }
 
 function createLinkValidationMessage(token: string): string {
@@ -190,8 +206,45 @@ function createLinkFailureMessage(
     : "I could not link your FullParty account right now. Please try again in a moment.";
 }
 
-const guildLinkSuccessMessage =
-  "✅ This Discord server is now linked to FullParty. FullParty can now use the server-side integration features configured for this guild.";
+function createGuildLinkSuccessMessage(
+  fullpartyWebBaseUrl: string,
+  response?: unknown,
+): LinkV2Message {
+  const data = getLinkResponseData(response);
+  return createGuildConnectedMessage({
+    fullpartyWebBaseUrl,
+    botSettingsUrl: data?.discord_settings_url,
+    groupSlug: getLinkedGroupSlug(data),
+  });
+}
 
-const userLinkSuccessMessage =
-  "✅ Your Discord account is now linked to FullParty. You can receive FullParty updates here and use the Discord integration features tied to your account.";
+function getLinkResponseData(response: unknown): Record<string, unknown> | undefined {
+  return isRecord(response)
+    ? isRecord(response.data)
+      ? response.data
+      : response
+    : undefined;
+}
+
+function getLinkedGroupSlug(
+  data: Record<string, unknown> | undefined,
+): string | undefined {
+  const slug = data
+    ? (
+        getStringProperty(data, "group_slug") ??
+        (isRecord(data.group) ? getStringProperty(data.group, "slug") : undefined)
+      )?.trim()
+    : undefined;
+  return slug && slug.length <= 200 ? slug : undefined;
+}
+
+function createUserLinkSuccessMessage(
+  fullpartyWebBaseUrl: string,
+  response?: unknown,
+): LinkV2Message {
+  const data = isRecord(response) && isRecord(response.data) ? response.data : undefined;
+  return createUserConnectedMessage({
+    fullpartyWebBaseUrl,
+    accountSettingsUrl: data?.account_settings_url,
+  });
+}

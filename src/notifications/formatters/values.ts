@@ -1,24 +1,6 @@
 import { formatDiscordDateTime } from "../../lib/discordTimestamps.js";
 import { humanizeIdentifier } from "../notificationText.js";
 import type { NotificationDeliveryData } from "../types.js";
-import type { ApplicationDetails, ApplicationFieldKey } from "./applications.js";
-
-export function addStartsAtField(
-  details: ApplicationDetails,
-  fields: ApplicationFieldKey[],
-): ApplicationFieldKey[] {
-  return details.startsAt && !fields.includes("startsAt")
-    ? ["startsAt", ...fields]
-    : fields;
-}
-
-export function joinDescriptionParts(
-  summary: string,
-  details: string | undefined,
-): string {
-  return details ? `${summary}\n\n${details}` : summary;
-}
-
 export function getPayloadDisplayStringValue(
   payload: unknown,
   key: string,
@@ -114,10 +96,6 @@ export function getRecordNumberValue(value: unknown, key: string): number | unde
     : undefined;
 }
 
-export function getNumberValue(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
 export function getLocalizedLabel(value: unknown): string | undefined {
   if (typeof value === "string") {
     return getDisplayStringValue(value);
@@ -150,10 +128,6 @@ export function getDisplayStringValue(value: unknown): string | undefined {
   const trimmedValue = value.trim();
 
   return trimmedValue.length > 0 ? trimmedValue : undefined;
-}
-
-export function isString(value: string | undefined): value is string {
-  return typeof value === "string";
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {

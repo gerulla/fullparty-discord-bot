@@ -17,8 +17,75 @@ import {
   createFailuresField,
   createUnlinkedPlacedUsersSection,
 } from "./failures.js";
+import { createAutomationV2Message, createAutomationV2RunDescription } from "./v2.js";
 
 export function buildRunReminderRoleSyncLogMessage(
+  data: GuildRunReminderData,
+  result: RoleAssignmentResult,
+): MessageCreateOptions {
+  if (result.roleDryRun) {
+    return buildLegacyRoleSyncLogMessage(data, result);
+  }
+
+  const { assignedUserCount, failedUserCount, requestedUserCount, skippedReason } =
+    result;
+  const status = getRoleSyncStatus({
+    assignedUserCount,
+    failedUserCount,
+    requestedUserCount,
+    skippedReason,
+  });
+  const failures = result.failures ?? [];
+  const copiedOverwriteCount = result.copiedOverwriteCount ?? 0;
+  const statistics = [
+    "### :fpcheck: Assignment Completion",
+    `> **${String(assignedUserCount)} / ${String(requestedUserCount)}** ${formatPlural(requestedUserCount, "user")} assigned`,
+    skippedReason
+      ? "> No assignments attempted"
+      : failedUserCount > 0
+        ? `> ${String(failedUserCount)} ${formatPlural(failedUserCount, "assignment")} failed`
+        : undefined,
+    "### :fpatsymbol: Template Role > Run Role",
+    `> ${result.templateRoleId ? `<@&${result.templateRoleId}>` : "Not configured"} > ${result.roleId ? `<@&${result.roleId}>` : "Not created"}`,
+    "### :fpnametag: Channel Access",
+    `> ${copiedOverwriteCount > 0 ? `${String(copiedOverwriteCount)} ${formatPlural(copiedOverwriteCount, "overwrite")} copied` : "No overwrites copied"}`,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n");
+  const note = skippedReason
+    ? `${formatRunReminderSkippedReason(skippedReason)} No users were assigned.`
+    : failedUserCount > 0
+      ? `${status.titleSuffix === "Failed" ? `${result.roleId ? "The run role is ready, but no users could be assigned." : "No users could be assigned a run role."} Check the failure details.` : "Some role assignments failed."} Common causes: user left the server, missing bot permissions, role hierarchy, or Discord API limits.`
+      : `${requestedUserCount > 0 ? `All ${String(assignedUserCount)} ${formatPlural(assignedUserCount, "user")} ${assignedUserCount === 1 ? "was" : "were"} assigned the run role.` : "No users required role assignment."}${result.roleId ? (result.createdRunRole ? " A new role was created for this run." : " The existing run role was reused.") : ""}`;
+
+  return createAutomationV2Message({
+    description: createAutomationV2RunDescription(
+      data,
+      requestedUserCount,
+      skippedReason,
+    ),
+    failureColor: status.color,
+    failureDetailsId: createAutomationFailureDetailsId({
+      context: createAutomationFailureDetailsContext(data),
+      sections: [
+        createAutomationFailureSection("Role Assignment Failures", failures),
+        createUnlinkedPlacedUsersSection(
+          data,
+          getRunReminderUnlinkedPlacedUserCount(data),
+        ),
+      ],
+      title: "Role Assignment Failure Details",
+    }),
+    failures,
+    note,
+    runUrl: data.run_url,
+    statistics,
+    title: `:fpatsymbol: Role Assignment - ${status.titleSuffix === "Complete" ? "Success" : status.titleSuffix}`,
+  });
+}
+
+// Dry-run logs have no approved V2 design yet.
+function buildLegacyRoleSyncLogMessage(
   data: GuildRunReminderData,
   result: RoleAssignmentResult,
 ): MessageCreateOptions {

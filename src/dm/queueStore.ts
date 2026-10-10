@@ -2,65 +2,122 @@ import type { DatabaseSync } from "node:sqlite";
 import { openSqliteDatabase } from "../database/sqlite.js";
 import { dmDeliveryJobSchema, type DmDeliveryJob } from "./deliveryTypes.js";
 
-export type StoredDmJob = { id: number; queuedAt: number; payload: DmDeliveryJob };
+export type StoredDmJob = {
+  id: number;
+  queuedAt: number;
+  attempts: number;
+  availableAt: number;
+  firstAttemptAt: number | null;
+  payload: DmDeliveryJob;
+};
 export type DmQueueStore = Pick<
   SqliteDmQueueStore,
-  "enqueue" | "pending" | "complete" | "sentTimes" | "recordSent" | "close"
+  | "enqueue"
+  | "pending"
+  | "beginAttempt"
+  | "retry"
+  | "complete"
+  | "sentTimes"
+  | "recordSent"
+  | "close"
 >;
+
+const cleanupIntervalMs = 5 * 60 * 1000;
 
 export class SqliteDmQueueStore {
   private readonly database: DatabaseSync;
+  private lastCleanupAt: number | undefined;
   public constructor(databasePath: string) {
     this.database = openSqliteDatabase(databasePath);
   }
 
-  public enqueue(payload: DmDeliveryJob): number {
+  public enqueue(payload: DmDeliveryJob): number | undefined {
     const validated = dmDeliveryJobSchema.parse(payload);
-    return Number(
-      this.database
-        .prepare(
-          "INSERT INTO user_dm_jobs (discord_user_id, payload_json, queued_at) VALUES (?, ?, ?)",
-        )
-        .run(validated.discordUserId, JSON.stringify(validated), Date.now())
-        .lastInsertRowid,
-    );
+    const result = this.database
+      .prepare(
+        `
+        INSERT INTO user_dm_jobs (discord_user_id, payload_json, queued_at, notification_delivery_id)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(discord_user_id, notification_delivery_id)
+          WHERE notification_delivery_id IS NOT NULL
+            AND (status IN ('queued', 'sent') OR outcome_uncertain = 1)
+        DO NOTHING
+      `,
+      )
+      .run(
+        validated.discordUserId,
+        JSON.stringify(validated),
+        Date.now(),
+        validated.metadata.notificationDeliveryId ?? null,
+      );
+    return result.changes === 0 ? undefined : Number(result.lastInsertRowid);
   }
 
   public pending(): StoredDmJob[] {
     return this.database
       .prepare(
-        "SELECT id, payload_json, queued_at FROM user_dm_jobs WHERE status = 'queued' ORDER BY id",
+        "SELECT id, payload_json, queued_at, attempts, available_at, first_attempt_at FROM user_dm_jobs WHERE status = 'queued' ORDER BY id",
       )
       .all()
       .map((row) => {
         if (
           typeof row.id !== "number" ||
           typeof row.queued_at !== "number" ||
+          typeof row.attempts !== "number" ||
+          typeof row.available_at !== "number" ||
+          (row.first_attempt_at !== null && typeof row.first_attempt_at !== "number") ||
           typeof row.payload_json !== "string"
         )
           throw new Error("Invalid persisted DM job.");
         return {
           id: row.id,
           queuedAt: row.queued_at,
+          attempts: row.attempts,
+          availableAt: row.available_at,
+          firstAttemptAt: row.first_attempt_at,
           payload: dmDeliveryJobSchema.parse(JSON.parse(row.payload_json) as unknown),
         };
       });
   }
 
-  public complete(id: number, error?: string): void {
+  public beginAttempt(id: number, timestamp = Date.now()): void {
     this.database
       .prepare(
-        "UPDATE user_dm_jobs SET status = ?, completed_at = ?, error = ? WHERE id = ?",
+        "UPDATE user_dm_jobs SET attempts = attempts + 1, first_attempt_at = COALESCE(first_attempt_at, ?) WHERE id = ? AND status = 'queued'",
       )
-      .run(error === undefined ? "sent" : "failed", Date.now(), error ?? null, id);
+      .run(timestamp, id);
+  }
+
+  public retry(id: number, availableAt: number, error: string): void {
+    this.database
+      .prepare(
+        "UPDATE user_dm_jobs SET available_at = ?, error = ? WHERE id = ? AND status = 'queued'",
+      )
+      .run(availableAt, error, id);
+  }
+
+  public complete(id: number, error?: string, uncertain = false): void {
+    this.database
+      .prepare(
+        "UPDATE user_dm_jobs SET status = ?, completed_at = ?, error = ?, outcome_uncertain = ? WHERE id = ?",
+      )
+      .run(
+        error === undefined ? "sent" : "failed",
+        Date.now(),
+        error ?? null,
+        uncertain ? 1 : 0,
+        id,
+      );
   }
 
   public sentTimes(windowMs: number): Map<string, number[]> {
     this.prune(windowMs);
     const result = new Map<string, number[]>();
     for (const row of this.database
-      .prepare("SELECT discord_user_id, sent_at FROM user_dm_sent_times ORDER BY sent_at")
-      .all()) {
+      .prepare(
+        "SELECT discord_user_id, sent_at FROM user_dm_sent_times WHERE sent_at > ? ORDER BY sent_at",
+      )
+      .all(Date.now() - windowMs)) {
       if (typeof row.discord_user_id !== "string" || typeof row.sent_at !== "number")
         throw new Error("Invalid persisted DM cooldown.");
       const times = result.get(row.discord_user_id) ?? [];
@@ -82,11 +139,15 @@ export class SqliteDmQueueStore {
   }
 
   private prune(windowMs: number): void {
+    const now = Date.now();
+    if (this.lastCleanupAt !== undefined && now - this.lastCleanupAt < cleanupIntervalMs)
+      return;
     this.database
       .prepare("DELETE FROM user_dm_sent_times WHERE sent_at <= ?")
-      .run(Date.now() - windowMs);
+      .run(now - windowMs);
     this.database
       .prepare("DELETE FROM user_dm_jobs WHERE status != 'queued' AND completed_at < ?")
-      .run(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      .run(now - 30 * 24 * 60 * 60 * 1000);
+    this.lastCleanupAt = now;
   }
 }

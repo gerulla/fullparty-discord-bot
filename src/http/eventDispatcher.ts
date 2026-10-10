@@ -4,10 +4,15 @@ import {
   sendAdminReport,
 } from "../dm/adminReport.js";
 import {
-  sendUserDm,
-  userAppDisconnectedMessage,
-  userAppInstalledMessage,
-} from "../dm/deliveryService.js";
+  createUserConnectedMessage,
+  createUserDisconnectedMessage,
+} from "../discord/linkMessages.js";
+import { sendUserDm } from "../dm/deliveryService.js";
+import {
+  createDiscordLoginMessage,
+  discordLoginDataSchema,
+  discordLoginEvent,
+} from "../dm/discordLogin.js";
 import { GuildAutomationService } from "../guildAutomation/automationService.js";
 import {
   guildRunParticipantSyncDataSchema,
@@ -34,6 +39,8 @@ import type { FullpartyEvent } from "./eventSchemas.js";
 import {
   guildDisconnectedDataSchema,
   guildMembershipSnapshotRequestedDataSchema,
+  guildRunsChangedDataSchema,
+  guildRunsChangedEvent,
   guildSettingsUpdatedDataSchema,
   guildSnapshotRequestedDataSchema,
   userAppEventDataSchema,
@@ -45,8 +52,51 @@ export async function dispatchEvent(
   event: FullpartyEvent,
   options: WebhookServerOptions,
 ): Promise<ActionResult> {
+  if (event.event === guildRunsChangedEvent) {
+    const data = guildRunsChangedDataSchema.parse(event.data);
+    const store = options.context.guildScheduleStore;
+    if (!store) {
+      throw new HttpError(
+        503,
+        "schedule_refresh_unavailable",
+        "Schedule refresh storage is unavailable. Retry this event later.",
+      );
+    }
+
+    // Persist the refresh before acknowledging; Discord and FullParty I/O runs in
+    // the scheduler. The store only accepts linked guilds using Run Detection.
+    const queued = store.requestRunDetectionRefresh(data.discord_guild_id);
+    return {
+      discordGuildId: data.discord_guild_id,
+      queued,
+      ...(!queued ? { skipped: true, reason: "run_detection_not_configured" } : {}),
+    };
+  }
+
   if (event.event === adminReportEvent) {
     return sendAdminReport(options, adminReportDataSchema.parse(event.data));
+  }
+
+  if (event.event === discordLoginEvent) {
+    const data = discordLoginDataSchema.parse(event.data);
+    if (data.discord_app_installed) {
+      return {
+        discordUserId: data.discord_user_id,
+        skipped: true,
+        reason: "discord_app_already_installed",
+      };
+    }
+
+    return sendUserDm(
+      options,
+      data.discord_user_id,
+      createDiscordLoginMessage(
+        data.discord_app_install_url,
+        options.fullpartyWebBaseUrl,
+        data.account_settings_url,
+      ),
+      { eventType: event.event, notificationType: event.event },
+    );
   }
 
   const automation = new GuildAutomationService(options);
@@ -62,9 +112,11 @@ export async function dispatchEvent(
     return sendUserDm(
       options,
       discordUserId,
-      {
-        content: data.welcome_message ?? userAppInstalledMessage,
-      },
+      createUserConnectedMessage({
+        fullpartyWebBaseUrl: options.fullpartyWebBaseUrl,
+        accountSettingsUrl: data.account_settings_url,
+        ...(data.welcome_message ? { welcomeMessage: data.welcome_message } : {}),
+      }),
       {
         eventType: event.event,
         notificationType: event.event,
@@ -79,9 +131,11 @@ export async function dispatchEvent(
     return sendUserDm(
       options,
       discordUserId,
-      {
-        content: userAppDisconnectedMessage,
-      },
+      createUserDisconnectedMessage({
+        fullpartyWebBaseUrl: options.fullpartyWebBaseUrl,
+        feedbackUrl: data.feedback_url,
+        disconnectGuideImageUrl: data.disconnect_guide_image_url,
+      }),
       {
         eventType: event.event,
         notificationType: event.event,
@@ -102,6 +156,7 @@ export async function dispatchEvent(
       {
         eventType: event.event,
         notificationType: data.type,
+        notificationDeliveryId: data.notification_delivery_id,
       },
     );
 
@@ -118,11 +173,16 @@ export async function dispatchEvent(
     const data = guildRunReminderDataSchema.parse(event.data);
 
     await markGuildLinked(options, data.discord_guild_id);
-    await automation.notifyStarted(data);
 
-    return options.context.guildRunReminderQueue
-      ? options.context.guildRunReminderQueue.enqueue({ data, kind: "run_reminder" })
-      : automation.remind(data);
+    if (options.context.guildRunReminderQueue) {
+      return options.context.guildRunReminderQueue.enqueue({
+        data,
+        kind: "run_reminder",
+      });
+    }
+
+    await automation.notifyStarted(data);
+    return automation.remind(data);
   }
 
   if (

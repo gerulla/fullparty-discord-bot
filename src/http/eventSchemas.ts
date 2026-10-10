@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { scheduleIntervalDaysSchema } from "../guildSchedule/settings.js";
+import {
+  scheduleFormatSchema,
+  scheduleIntervalDaysSchema,
+  scheduleModeSchema,
+} from "../guildSchedule/settings.js";
 import { notificationDeliveryDataSchema } from "../notifications/types.js";
 import { HttpError } from "./httpError.js";
 
@@ -16,9 +20,17 @@ export const userAppEventDataSchema = z.looseObject({
     id: z.string().trim().min(1),
   }),
   welcome_message: z.string().trim().min(1).max(2000).optional(),
+  account_settings_url: z.string().nullable().optional(),
+  feedback_url: z.string().nullable().optional(),
+  disconnect_guide_image_url: z.string().nullable().optional(),
 });
 
 export const guildSnapshotRequestedDataSchema = z.looseObject({
+  discord_guild_id: z.string().trim().min(1),
+});
+
+export const guildRunsChangedEvent = "discord.guild.runs_changed";
+export const guildRunsChangedDataSchema = z.looseObject({
   discord_guild_id: z.string().trim().min(1),
 });
 
@@ -48,10 +60,13 @@ const runRoleTemplateOverrideSchema = z.object({
 
 export const guildSettingsUpdatedDataSchema = z.looseObject({
   discord_guild_id: z.string().trim().min(1),
+  group_slug: z.string().trim().min(1).max(200).nullable().optional(),
   settings: z.looseObject({
     bot_log_channel_id: nullableSettingIdSchema,
     bot_moderator_role_id: nullableSettingIdSchema,
     run_announcement_channel_id: nullableSettingIdSchema,
+    schedule_format: scheduleFormatSchema.optional(),
+    schedule_mode: scheduleModeSchema.optional(),
     schedule_refresh_enabled: z.boolean().optional(),
     schedule_refresh_channel_id: nullableSettingIdSchema,
     schedule_refresh_interval_days: scheduleIntervalDaysSchema.optional(),

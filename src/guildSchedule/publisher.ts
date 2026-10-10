@@ -9,6 +9,7 @@ import {
 } from "discord.js";
 import { z } from "zod";
 import type { BotContext } from "../bot/context.js";
+import { resolveV2MessageIcons } from "../discord/v2.js";
 import { createGuildUpcomingRunsPostMessage } from "../fullparty/discordGuildRunPosts.js";
 import { getDiscordApiErrorCode } from "../lib/errors.js";
 import type { ScheduleJob, SqliteGuildScheduleStore } from "./store.js";
@@ -70,6 +71,7 @@ export class GuildSchedulePublisher {
     const message = createGuildUpcomingRunsPostMessage(
       response,
       this.context.fullpartyWebBaseUrl,
+      job.schedule_format,
     );
     if (!canContinue()) return undefined;
 
@@ -79,9 +81,9 @@ export class GuildSchedulePublisher {
     }
     if (!canContinue()) return undefined;
     const sent = await channel.send({
-      ...message,
+      ...resolveV2MessageIcons(message, this.client),
       allowedMentions: { parse: [] },
-      flags: MessageFlags.SuppressNotifications,
+      flags: (message.flags ?? 0) | MessageFlags.SuppressNotifications,
       nonce: createHash("sha256")
         .update(
           `${job.guild_id}:${String(job.revision)}:${job.last_refreshed_at ?? "initial"}`,

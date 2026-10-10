@@ -1,4 +1,5 @@
 import {
+  ComponentType,
   MessageFlags,
   PermissionFlagsBits,
   PermissionsBitField,
@@ -8,88 +9,157 @@ import {
   type RoleSelectMenuInteraction,
   type StringSelectMenuInteraction,
 } from "discord.js";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { BotContext } from "../src/bot/context.js";
 import { setupCommand } from "../src/commands/setup.js";
 import { FullpartyApiClient } from "../src/fullparty/client.js";
 import type { GuildSettings, GuildSettingsPatch } from "../src/guildSettings/types.js";
-import { LatestPayloadStore } from "../src/payloads/latestPayloadStore.js";
 import { createInteractionHandler } from "../src/interactions/handleInteraction.js";
+import { LatestPayloadStore } from "../src/payloads/latestPayloadStore.js";
+import { messageComponents, messageText } from "./helpers/messages.js";
+
+const navigation = [
+  { id: "setup:page:bot", label: "Bot Settings", control: "setup:bot_log_channel" },
+  {
+    id: "setup:page:roles",
+    label: "Role Templates",
+    control: "setup:upcoming_raider_role",
+  },
+  {
+    id: "setup:page:nickname",
+    label: "Nickname Sync",
+    control: "setup:name_sync:enabled",
+  },
+  {
+    id: "setup:schedule:open",
+    label: "Schedule Settings",
+    control: "setup:schedule:mode",
+  },
+];
 
 describe("setupCommand", () => {
-  it("opens the setup panel for guild managers", async () => {
-    const context = createContext({
-      guildId: "guild-id",
-      syncDiscordNamesToFf14: false,
+  it("immediately opens a public V2 menu with four sections, without loading settings", async () => {
+    const context = createContext();
+    const get = vi.fn(() => {
+      throw new Error("The home menu must not wait for settings.");
     });
+    context.guildSettings.get = get;
     const reply = createAsyncRecorder();
-
-    await setupCommand.execute(
-      createChatInputInteraction({
-        reply: reply.fn,
-      }),
-      context,
-    );
-
+    await setupCommand.execute(createChatInputInteraction({ reply: reply.fn }), context);
     expect(reply.calls).toHaveLength(1);
-    expect(reply.calls[0]?.[0]).toMatchObject({
-      content: expect.stringContaining("FullParty Server Setup") as string,
-      flags: MessageFlags.Ephemeral,
+    const message = response(reply);
+    expect(message).toMatchObject({
+      flags: MessageFlags.IsComponentsV2,
     });
-    expect(reply.calls[0]?.[0]).toMatchObject({
-      content: expect.stringContaining("2. Member-Facing Channel") as string,
-    });
-    expect(reply.calls[0]?.[0]).toMatchObject({
-      content: expect.stringContaining("3. Template Role") as string,
-    });
-    expect(getReplyComponents(reply)).toHaveLength(5);
+    expect(messageText(message)).toContain("FullParty Server Setup");
+    expect(
+      messageComponents(message)
+        .filter((c) => c.type === 2)
+        .map(({ custom_id, label }) => ({ custom_id, label })),
+    ).toEqual(navigation.map(({ id, label }) => ({ custom_id: id, label })));
+    expect(messageComponents(message).some((c) => c.type === 8)).toBe(false);
+    expect(get).not.toHaveBeenCalled();
+    expect(context.patches).toEqual([]);
   });
 
-  it("lists configured template role overrides in the setup panel", async () => {
-    const context = createContext({
-      guildId: "guild-id",
-      runRoleTemplateOverrides: [
-        {
-          activityId: 321,
-          activityName: "Abyssos Savage",
-          roleId: "abyssos-role-id",
-        },
-        {
-          activityId: 654,
-          activityName: "Eden Ultimate",
-          roleId: "eden-role-id",
-        },
-      ],
-      syncDiscordNamesToFf14: false,
-    });
-    const reply = createAsyncRecorder();
+  it.each(navigation)(
+    "opens only $label and returns to the menu without changing settings",
+    async ({ id, label, control }) => {
+      const context = createContext();
+      const editReply = createAsyncRecorder();
+      const deferUpdate = createAsyncRecorder();
+      await setupCommand.handleComponent?.(
+        createComponentInteraction("button", {
+          customId: id,
+          editReply: editReply.fn,
+          deferUpdate: deferUpdate.fn,
+        }),
+        context,
+      );
+      expectV2Edit(response(editReply));
+      expect(messageText(response(editReply))).toContain(`## ${label}`);
+      expect(customIds(response(editReply))).toContain(control);
+      expect(customIds(response(editReply))).toContain("setup:back");
+      for (const other of navigation.filter((item) => item.id !== id)) {
+        expect(customIds(response(editReply))).not.toContain(other.control);
+      }
+      await setupCommand.handleComponent?.(
+        createComponentInteraction("button", {
+          customId: "setup:back",
+          editReply: editReply.fn,
+          deferUpdate: deferUpdate.fn,
+        }),
+        context,
+      );
+      expectV2Edit(response(editReply, 1));
+      expect(customIds(response(editReply, 1))).toEqual(
+        navigation.map((item) => item.id),
+      );
+      expect(deferUpdate.calls).toHaveLength(2);
+      expect(context.patches).toEqual([]);
+    },
+  );
 
-    await setupCommand.execute(
-      createChatInputInteraction({
-        reply: reply.fn,
+  it("lists configured template role overrides on the role page", async () => {
+    const context = createContext({
+      runRoleTemplateOverrides: [
+        { activityId: 321, activityName: "Abyssos Savage", roleId: "abyssos-role-id" },
+        { activityId: 654, activityName: "Eden Ultimate", roleId: "eden-role-id" },
+      ],
+    });
+    const editReply = createAsyncRecorder();
+    await setupCommand.handleComponent?.(
+      createComponentInteraction("button", {
+        customId: "setup:page:roles",
+        editReply: editReply.fn,
       }),
       context,
     );
-
-    expect(reply.calls[0]?.[0]).toMatchObject({
-      content: expect.stringContaining("**Template Role Overrides:**") as string,
-    });
-    expect(reply.calls[0]?.[0]).toMatchObject({
-      content: expect.stringContaining(
-        "<@&abyssos-role-id> - Abyssos Savage (321)",
-      ) as string,
-    });
-    expect(reply.calls[0]?.[0]).toMatchObject({
-      content: expect.stringContaining(
-        "<@&eden-role-id> - Eden Ultimate (654)",
-      ) as string,
-    });
+    const text = messageText(response(editReply));
+    expect(text).toContain("Abyssos Savage");
+    expect(text).toContain("<@&abyssos-role-id>");
+    expect(text).toContain("Eden Ultimate");
+    expect(text).toContain("<@&eden-role-id>");
+    expect(messageComponents(response(editReply))).toContainEqual(
+      expect.objectContaining({
+        type: ComponentType.RoleSelect,
+        custom_id: "setup:upcoming_raider_role",
+      }),
+    );
   });
+
+  it.each([undefined, "example-raiders"])(
+    "links role settings only when the linked group slug is known (%s)",
+    async (groupSlug) => {
+      const context = createContext(groupSlug ? { groupSlug } : {});
+      const editReply = createAsyncRecorder();
+      await setupCommand.handleComponent?.(
+        createComponentInteraction("button", {
+          customId: "setup:page:roles",
+          editReply: editReply.fn,
+        }),
+        context,
+      );
+      const links = messageComponents(response(editReply)).filter(
+        (component) => component.url,
+      );
+      expect(links).toEqual(
+        groupSlug
+          ? [
+              expect.objectContaining({
+                label: "Settings",
+                url: "https://fullparty.gg/groups/example-raiders/dashboard/discord-integration",
+              }),
+            ]
+          : [],
+      );
+      expect(context.patches).toEqual([]);
+    },
+  );
 
   it("blocks setup outside guilds", async () => {
     const reply = createAsyncRecorder();
-
     await setupCommand.execute(
       createChatInputInteraction({
         guildId: null,
@@ -98,7 +168,6 @@ describe("setupCommand", () => {
       }),
       createContext(),
     );
-
     expect(reply.calls).toEqual([
       [
         {
@@ -111,15 +180,13 @@ describe("setupCommand", () => {
 
   it("blocks setup for members without Manage Server", async () => {
     const reply = createAsyncRecorder();
-
     await setupCommand.execute(
       createChatInputInteraction({
-        memberPermissions: new PermissionsBitField(0n),
+        memberPermissions: new PermissionsBitField(),
         reply: reply.fn,
       }),
       createContext(),
     );
-
     expect(reply.calls).toEqual([
       [
         {
@@ -130,322 +197,451 @@ describe("setupCommand", () => {
     ]);
   });
 
-  it("saves the selected bot-log channel", async () => {
-    const context = createContext();
-    const update = createAsyncRecorder();
-
-    await setupCommand.handleComponent?.(
-      createChannelSelectInteraction({
-        customId: "setup:bot_log_channel",
-        update: update.fn,
-        values: ["bot-log-channel-id"],
-      }),
-      context,
-    );
-
-    expect(context.patches).toEqual([
-      {
-        botLogChannelId: "bot-log-channel-id",
-      },
-    ]);
-    expect(update.calls[0]?.[0]).toMatchObject({
-      content: expect.stringContaining("<#bot-log-channel-id>") as string,
-    });
-  });
-
-  it("saves the selected run announcement channel", async () => {
-    const context = createContext();
-    const update = createAsyncRecorder();
-
-    await setupCommand.handleComponent?.(
-      createChannelSelectInteraction({
-        customId: "setup:run_announcement_channel",
-        update: update.fn,
-        values: ["run-announcement-channel-id"],
-      }),
-      context,
-    );
-
-    expect(context.patches).toEqual([
-      {
-        runAnnouncementChannelId: "run-announcement-channel-id",
-      },
-    ]);
-  });
-
-  it("warns when a selected channel is missing send permissions", async () => {
-    const context = createContext();
-    const update = createAsyncRecorder();
-
-    await setupCommand.handleComponent?.(
-      createChannelSelectInteraction({
-        channel: {
-          permissionsFor: () => new PermissionsBitField(PermissionFlagsBits.ViewChannel),
-        },
-        customId: "setup:run_announcement_channel",
-        update: update.fn,
-        values: ["run-announcement-channel-id"],
-      }),
-      context,
-    );
-
-    expect(context.patches).toEqual([
-      {
-        runAnnouncementChannelId: "run-announcement-channel-id",
-      },
-    ]);
-    expect(update.calls[0]?.[0]).toMatchObject({
-      content: expect.stringContaining(
-        "Member-Facing Channel preflight: I cannot fully send messages",
-      ) as string,
-    });
-    expect(update.calls[0]?.[0]).toMatchObject({
-      content: expect.stringContaining("Send Messages, Embed Links") as string,
-    });
-  });
-
-  it("does not warn when a selected channel is sendable", async () => {
-    const context = createContext();
-    const update = createAsyncRecorder();
-
-    await setupCommand.handleComponent?.(
-      createChannelSelectInteraction({
-        channel: {
-          permissionsFor: () =>
-            new PermissionsBitField(
-              PermissionFlagsBits.ViewChannel |
-                PermissionFlagsBits.SendMessages |
-                PermissionFlagsBits.EmbedLinks,
-            ),
-        },
-        customId: "setup:bot_log_channel",
-        update: update.fn,
-        values: ["bot-log-channel-id"],
-      }),
-      context,
-    );
-
-    expect(update.calls[0]?.[0]).toMatchObject({
-      content: expect.not.stringContaining("preflight") as string,
-    });
-  });
-
-  it("saves the selected upcoming raider role", async () => {
-    const context = createContext();
-    const update = createAsyncRecorder();
-
-    await setupCommand.handleComponent?.(
-      createRoleSelectInteraction({
-        update: update.fn,
-        values: ["upcoming-raider-role-id"],
-      }),
-      context,
-    );
-
-    expect(context.patches).toEqual([
-      {
-        upcomingRaiderRoleId: "upcoming-raider-role-id",
-      },
-    ]);
-  });
-
-  it("saves the selected bot moderator role", async () => {
-    const context = createContext();
-    const update = createAsyncRecorder();
-
-    await setupCommand.handleComponent?.(
-      createRoleSelectInteraction({
-        customId: "setup:bot_moderator_role",
-        update: update.fn,
-        values: ["bot-moderator-role-id"],
-      }),
-      context,
-    );
-
-    expect(context.patches).toEqual([
-      {
-        botModeratorRoleId: "bot-moderator-role-id",
-      },
-    ]);
-  });
-
-  it("saves the name sync preference", async () => {
-    const context = createContext();
-    const update = createAsyncRecorder();
-
-    await setupCommand.handleComponent?.(
-      createButtonInteraction({
-        customId: "setup:name_sync:enabled",
-        update: update.fn,
-      }),
-      context,
-    );
-
-    expect(context.patches).toEqual([
-      {
-        syncDiscordNamesToFf14: true,
-      },
-    ]);
-  });
-
-  it("opens a separate automatic schedule panel and can return to the five-row setup", async () => {
-    const context = createContext();
-    const update = createAsyncRecorder();
-    await setupCommand.handleComponent?.(
-      createButtonInteraction({ customId: "setup:schedule:open", update: update.fn }),
-      context,
-    );
-    expect(update.calls[0]?.[0]).toMatchObject({
-      content: expect.stringContaining("Automatic Schedule") as string,
-    });
-    expect(getReplyComponents(update)).toHaveLength(3);
-    expect(JSON.stringify(update.calls)).toContain("Weekly");
-    await setupCommand.handleComponent?.(
-      createButtonInteraction({ customId: "setup:back", update: update.fn }),
-      context,
-    );
-    expect(update.calls[1]?.[0]).toMatchObject({
-      content: expect.stringContaining("FullParty Server Setup") as string,
-    });
-    expect(context.patches).toEqual([]);
-  });
-
-  it.each([1, 2, 3, 4, 5, 6, 7])(
-    "routes the frequency select and saves %i days",
-    async (days) => {
+  it.each([
+    {
+      kind: "channel",
+      id: "setup:bot_log_channel",
+      value: "bot-log-channel-id",
+      patch: { botLogChannelId: "bot-log-channel-id" },
+      ownControl: "setup:bot_moderator_role",
+    },
+    {
+      kind: "role",
+      id: "setup:bot_moderator_role",
+      value: "bot-moderator-role-id",
+      patch: { botModeratorRoleId: "bot-moderator-role-id" },
+      ownControl: "setup:bot_log_channel",
+    },
+    {
+      kind: "role",
+      id: "setup:upcoming_raider_role",
+      value: "upcoming-raider-role-id",
+      patch: { upcomingRaiderRoleId: "upcoming-raider-role-id" },
+      ownControl: "setup:upcoming_raider_role",
+    },
+  ] as const)(
+    "saves $id and refreshes its own section",
+    async ({ kind, id, value, patch, ownControl }) => {
       const context = createContext();
-      const update = createAsyncRecorder();
-      const interaction = {
-        customId: "setup:schedule:interval",
-        guildId: "guild-id",
-        inGuild: () => true,
-        memberPermissions: new PermissionsBitField(PermissionFlagsBits.ManageGuild),
-        update: update.fn,
-        reply: createAsyncRecorder().fn,
-        isChatInputCommand: () => false,
-        isButton: () => false,
-        isChannelSelectMenu: () => false,
-        isRoleSelectMenu: () => false,
-        isStringSelectMenu: () => true,
-        values: [String(days)],
-        user: { id: "manager" },
-      } as unknown as StringSelectMenuInteraction;
-      await createInteractionHandler(context, [setupCommand])(interaction);
-      expect(context.patches).toEqual([{ scheduleRefreshIntervalDays: days }]);
-      expect(update.calls).toHaveLength(1);
+      const editReply = createAsyncRecorder();
+      await setupCommand.handleComponent?.(
+        createComponentInteraction(kind, {
+          customId: id,
+          editReply: editReply.fn,
+          values: [value],
+        }),
+        context,
+      );
+      expect(context.patches).toEqual([patch]);
+      expectV2Edit(response(editReply));
+      expect(messageText(response(editReply))).toContain(value);
+      expect(customIds(response(editReply))).toContain(ownControl);
+      expect(customIds(response(editReply))).not.toContain("setup:schedule:channel");
+      expect(customIds(response(editReply))).toContain("setup:back");
     },
   );
 
-  it("warns about history permission without requiring embeds in the schedule channel", async () => {
+  it.each([
+    "setup:schedule_channel",
+    "setup:run_announcement_channel",
+    "setup:schedule:channel",
+  ])(
+    "updates the shared schedule channel using current and legacy control %s",
+    async (customId) => {
+      const context = createContext({ scheduleRefreshChannelId: "automatic-channel" });
+      const editReply = createAsyncRecorder();
+      await setupCommand.handleComponent?.(
+        createComponentInteraction("channel", {
+          customId,
+          editReply: editReply.fn,
+          values: ["manual-channel"],
+        }),
+        context,
+      );
+      expect(context.patches).toEqual([{ runAnnouncementChannelId: "manual-channel" }]);
+      expectV2Edit(response(editReply));
+      expect(messageText(response(editReply))).toContain("<#manual-channel>");
+      expect(messageText(response(editReply))).not.toContain("<#automatic-channel>");
+      expect(customIds(response(editReply))).toContain("setup:schedule_channel");
+      expect(customIds(response(editReply))).not.toContain("setup:schedule:channel");
+      expect(customIds(response(editReply))).not.toContain(
+        "setup:run_announcement_channel",
+      );
+    },
+  );
+
+  it("warns when a selected manual schedule channel is missing send permissions", async () => {
     const context = createContext();
-    const update = createAsyncRecorder();
+    const editReply = createAsyncRecorder();
     await setupCommand.handleComponent?.(
-      createChannelSelectInteraction({
-        customId: "setup:schedule:channel",
-        values: ["schedule-channel"],
-        update: update.fn,
+      createComponentInteraction("channel", {
+        channel: {
+          permissionsFor: () => new PermissionsBitField(PermissionFlagsBits.ViewChannel),
+        },
+        customId: "setup:schedule_channel",
+        editReply: editReply.fn,
+        values: ["manual-channel"],
+      }),
+      context,
+    );
+    expect(context.patches).toEqual([{ runAnnouncementChannelId: "manual-channel" }]);
+    expect(messageText(response(editReply))).toContain(
+      "Schedule Channel preflight: I cannot fully send messages",
+    );
+    expect(messageText(response(editReply))).toContain("Send Messages, Embed Links");
+  });
+
+  it("does not warn when a selected bot-log channel is sendable", async () => {
+    const editReply = createAsyncRecorder();
+    await setupCommand.handleComponent?.(
+      createComponentInteraction("channel", {
         channel: {
           permissionsFor: () =>
             new PermissionsBitField([
               PermissionFlagsBits.ViewChannel,
               PermissionFlagsBits.SendMessages,
+              PermissionFlagsBits.EmbedLinks,
+            ]),
+        },
+        customId: "setup:bot_log_channel",
+        editReply: editReply.fn,
+      }),
+      createContext(),
+    );
+    expect(messageText(response(editReply))).not.toContain("preflight");
+  });
+
+  it("updates nickname state and offers the inverse toggle after each change", async () => {
+    const context = createContext();
+    const editReply = createAsyncRecorder();
+    for (const [index, enabled] of [true, false].entries()) {
+      await setupCommand.handleComponent?.(
+        createComponentInteraction("button", {
+          customId: `setup:name_sync:${enabled ? "enabled" : "disabled"}`,
+          editReply: editReply.fn,
+        }),
+        context,
+      );
+      const message = response(editReply, index);
+      expectV2Edit(message);
+      expect(messageText(message)).toContain(enabled ? "Enabled" : "Disabled");
+      expect(customIds(message)).toContain(
+        `setup:name_sync:${enabled ? "disabled" : "enabled"}`,
+      );
+      expect(customIds(message)).not.toContain("setup:bot_log_channel");
+      expect(customIds(message)).not.toContain("setup:schedule:channel");
+    }
+    expect(context.patches).toEqual([
+      { syncDiscordNamesToFf14: true },
+      { syncDiscordNamesToFf14: false },
+    ]);
+  });
+
+  it.each([1, 2, 3, 4, 5, 6, 7])(
+    "routes the frequency select and saves %i days on the schedule page",
+    async (days) => {
+      const context = createContext({ scheduleMode: "timed_refresh" });
+      const editReply = createAsyncRecorder();
+      const interaction = createComponentInteraction("string", {
+        customId: "setup:schedule:interval",
+        editReply: editReply.fn,
+        values: [String(days)],
+      });
+      await createInteractionHandler(context, [setupCommand])(interaction);
+      expect(context.patches).toEqual([{ scheduleRefreshIntervalDays: days }]);
+      expect(editReply.calls).toHaveLength(1);
+      expectV2Edit(response(editReply));
+      expect(messageComponents(response(editReply))).toContainEqual(
+        expect.objectContaining({
+          custom_id: "setup:schedule:interval",
+          options: expect.arrayContaining([
+            expect.objectContaining({ value: String(days), default: true }),
+          ]) as unknown,
+        }),
+      );
+    },
+  );
+
+  it("warns about history permission when selecting a shared automatic schedule channel", async () => {
+    const context = createContext({ scheduleMode: "run_detection" });
+    const editReply = createAsyncRecorder();
+    await setupCommand.handleComponent?.(
+      createComponentInteraction("channel", {
+        customId: "setup:schedule:channel",
+        values: ["schedule-channel"],
+        editReply: editReply.fn,
+        channel: {
+          permissionsFor: () =>
+            new PermissionsBitField([
+              PermissionFlagsBits.ViewChannel,
+              PermissionFlagsBits.SendMessages,
+              PermissionFlagsBits.EmbedLinks,
             ]),
         },
       }),
       context,
     );
-    expect(context.patches).toEqual([{ scheduleRefreshChannelId: "schedule-channel" }]);
-    expect(JSON.stringify(update.calls)).toContain("Read Message History");
-    expect(JSON.stringify(update.calls)).not.toContain("Embed Links");
+    expect(context.patches).toEqual([{ runAnnouncementChannelId: "schedule-channel" }]);
+    expect(messageText(response(editReply))).toContain("Read Message History");
+    expect(messageText(response(editReply))).not.toContain("Embed Links");
+    expect(messageText(response(editReply))).toContain("<#schedule-channel>");
   });
 
-  it("requires a link and a chosen channel before enabling schedules", async () => {
-    for (const linked of [false, true]) {
-      const context = createContext({
-        guildId: "guild-id",
-        syncDiscordNamesToFf14: false,
-        ...(linked ? { linkedAt: "2026-09-11T00:00:00Z" } : {}),
-      });
-      const update = createAsyncRecorder();
+  it.each([false, true])(
+    "requires a link and a chosen channel before enabling schedules (linked: %s)",
+    async (linked) => {
+      const context = createContext(linked ? { linkedAt: "2026-09-11T00:00:00Z" } : {});
+      const editReply = createAsyncRecorder();
       await setupCommand.handleComponent?.(
-        createButtonInteraction({ customId: "setup:schedule:enable", update: update.fn }),
+        createComponentInteraction("button", {
+          customId: "setup:schedule:enable",
+          editReply: editReply.fn,
+        }),
         context,
       );
       expect(context.patches).toEqual([]);
-      expect(JSON.stringify(update.calls)).toContain(
+      expectV2Edit(response(editReply));
+      expect(messageText(response(editReply))).toContain(
         linked ? "Choose a schedule channel" : "Link this server",
       );
-    }
-  });
+    },
+  );
 
-  it("lets managers enable or disable scheduling after configuration", async () => {
+  it("keeps legacy enable and disable controls working with the new modes", async () => {
     const context = createContext({
-      guildId: "guild-id",
-      syncDiscordNamesToFf14: false,
       linkedAt: "2026-09-11T00:00:00Z",
-      scheduleRefreshChannelId: "schedule-channel",
+      runAnnouncementChannelId: "schedule-channel",
     });
-    const update = createAsyncRecorder();
-    await setupCommand.handleComponent?.(
-      createButtonInteraction({ customId: "setup:schedule:enable", update: update.fn }),
-      context,
-    );
-    await setupCommand.handleComponent?.(
-      createButtonInteraction({ customId: "setup:schedule:disable", update: update.fn }),
-      context,
-    );
+    const editReply = createAsyncRecorder();
+    for (const [index, enabled] of [true, false].entries()) {
+      await setupCommand.handleComponent?.(
+        createComponentInteraction("button", {
+          customId: `setup:schedule:${enabled ? "enable" : "disable"}`,
+          editReply: editReply.fn,
+        }),
+        context,
+      );
+      expect(messageComponents(response(editReply, index))).toContainEqual(
+        expect.objectContaining({
+          custom_id: "setup:schedule:mode",
+          options: expect.arrayContaining([
+            expect.objectContaining({
+              value: enabled ? "timed_refresh" : "disabled",
+              default: true,
+            }),
+          ]) as unknown,
+        }),
+      );
+    }
     expect(context.patches).toEqual([
-      { scheduleRefreshEnabled: true },
-      { scheduleRefreshEnabled: false },
+      { scheduleMode: "timed_refresh" },
+      { scheduleMode: "disabled" },
     ]);
   });
 
-  it("does not let non-managers change automatic schedules", async () => {
-    const context = createContext();
-    const reply = createAsyncRecorder();
+  it("switches between all three modes and only shows the frequency control for timed refresh", async () => {
+    const context = createContext({
+      linkedAt: "2026-09-11T00:00:00Z",
+      runAnnouncementChannelId: "schedule-channel",
+    });
+    const editReply = createAsyncRecorder();
+    const modes = ["timed_refresh", "run_detection", "disabled"] as const;
+    for (const [index, mode] of modes.entries()) {
+      await createInteractionHandler(context, [setupCommand])(
+        createComponentInteraction("string", {
+          customId: "setup:schedule:mode",
+          values: [mode],
+          editReply: editReply.fn,
+        }),
+      );
+      expectV2Edit(response(editReply, index));
+      expect(
+        customIds(response(editReply, index)).includes("setup:schedule:interval"),
+      ).toBe(mode === "timed_refresh");
+      expect(customIds(response(editReply, index))).toContain("setup:schedule_channel");
+      expect(customIds(response(editReply, index))).not.toContain(
+        "setup:schedule:channel",
+      );
+      expect(messageComponents(response(editReply, index))).toContainEqual(
+        expect.objectContaining({
+          custom_id: "setup:schedule:mode",
+          options: expect.arrayContaining([
+            expect.objectContaining({ value: mode, default: true }),
+          ]) as unknown,
+        }),
+      );
+    }
+    expect(context.patches).toEqual(modes.map((scheduleMode) => ({ scheduleMode })));
+  });
+
+  it.each(["timed_refresh", "run_detection"])(
+    "requires a linked server and shared channel when selecting %s",
+    async (mode) => {
+      for (const linked of [false, true]) {
+        const context = createContext({
+          ...(linked ? { linkedAt: "2026-09-11T00:00:00Z" } : {}),
+          scheduleRefreshChannelId: "old-automatic-channel",
+        });
+        const editReply = createAsyncRecorder();
+        await setupCommand.handleComponent?.(
+          createComponentInteraction("string", {
+            customId: "setup:schedule:mode",
+            values: [mode],
+            editReply: editReply.fn,
+          }),
+          context,
+        );
+        expect(context.patches).toEqual([]);
+        expect(messageText(response(editReply))).toContain(
+          linked ? "Choose a schedule channel" : "Link this server",
+        );
+      }
+    },
+  );
+
+  it("checks channel history permission when activating automatic updates", async () => {
+    const context = createContext({
+      linkedAt: "2026-09-11T00:00:00Z",
+      runAnnouncementChannelId: "schedule-channel",
+    });
+    const editReply = createAsyncRecorder();
     await setupCommand.handleComponent?.(
-      createButtonInteraction({
-        customId: "setup:schedule:disable",
+      createComponentInteraction("string", {
+        customId: "setup:schedule:mode",
+        values: ["run_detection"],
+        editReply: editReply.fn,
+        channel: {
+          permissionsFor: () =>
+            new PermissionsBitField([
+              PermissionFlagsBits.ViewChannel,
+              PermissionFlagsBits.SendMessages,
+              PermissionFlagsBits.EmbedLinks,
+            ]),
+        },
+      }),
+      context,
+    );
+    expect(context.patches).toEqual([{ scheduleMode: "run_detection" }]);
+    expect(messageText(response(editReply))).toContain("Read Message History");
+  });
+
+  it("rejects invalid schedule mode values without changing settings", async () => {
+    const context = createContext();
+    await expect(
+      setupCommand.handleComponent?.(
+        createComponentInteraction("string", {
+          customId: "setup:schedule:mode",
+          values: ["invalid-mode"],
+        }),
+        context,
+      ),
+    ).rejects.toThrow("Choose a valid schedule mode");
+    expect(context.patches).toEqual([]);
+  });
+
+  it.each([
+    "setup:page:bot",
+    "setup:page:roles",
+    "setup:page:nickname",
+    "setup:schedule:open",
+    "setup:back",
+    "setup:name_sync:enabled",
+    "setup:schedule:disable",
+  ])("rechecks Manage Server before acknowledging or loading %s", async (customId) => {
+    const context = createContext();
+    const get = vi.spyOn(context.guildSettings, "get");
+    const reply = createAsyncRecorder();
+    const deferUpdate = createAsyncRecorder();
+    const editReply = createAsyncRecorder();
+    await setupCommand.handleComponent?.(
+      createComponentInteraction("button", {
+        customId,
         memberPermissions: new PermissionsBitField(),
         reply: reply.fn,
+        deferUpdate: deferUpdate.fn,
+        editReply: editReply.fn,
       }),
       context,
     );
     expect(context.patches).toEqual([]);
+    expect(get).not.toHaveBeenCalled();
+    expect(deferUpdate.calls).toEqual([]);
+    expect(editReply.calls).toEqual([]);
     expect(JSON.stringify(reply.calls)).toContain("Manage Server");
+  });
+
+  it("acknowledges navigation before waiting on settings", async () => {
+    const context = createContext();
+    let acknowledged = false;
+    const get = context.guildSettings.get.bind(context.guildSettings);
+    context.guildSettings.get = (guildId) => {
+      expect(acknowledged).toBe(true);
+      return get(guildId);
+    };
+    await setupCommand.handleComponent?.(
+      createComponentInteraction("button", {
+        customId: "setup:page:bot",
+        deferUpdate: () => {
+          acknowledged = true;
+          return Promise.resolve();
+        },
+      }),
+      context,
+    );
+    expect(acknowledged).toBe(true);
+  });
+
+  it("acknowledges a setting change before permission checks and persistence", async () => {
+    const context = createContext();
+    let acknowledged = false;
+    const update = context.guildSettings.update.bind(context.guildSettings);
+    context.guildSettings.update = (guildId, patch) => {
+      expect(acknowledged).toBe(true);
+      return update(guildId, patch);
+    };
+    const permissionsFor = vi.fn(() => {
+      expect(acknowledged).toBe(true);
+      return new PermissionsBitField();
+    });
+    await setupCommand.handleComponent?.(
+      createComponentInteraction("channel", {
+        customId: "setup:bot_log_channel",
+        channel: { permissionsFor },
+        deferUpdate: () => {
+          acknowledged = true;
+          return Promise.resolve();
+        },
+      }),
+      context,
+    );
+    expect(permissionsFor).toHaveBeenCalled();
+    expect(context.patches).toEqual([{ botLogChannelId: "selected-id" }]);
   });
 });
 
-type TestContext = BotContext & {
-  patches: GuildSettingsPatch[];
-};
-
-type AsyncRecorder = {
-  calls: unknown[][];
-  fn: (...args: unknown[]) => Promise<void>;
-};
-
+type TestContext = BotContext & { patches: GuildSettingsPatch[] };
+type AsyncRecorder = { calls: unknown[][]; fn: (...args: unknown[]) => Promise<void> };
 type BaseInteractionOptions = {
   guildId?: string | null;
   inGuild?: () => boolean;
   memberPermissions?: PermissionsBitField;
   reply?: (...args: unknown[]) => Promise<void>;
 };
-
 type ComponentInteractionOptions = BaseInteractionOptions & {
   channel?: unknown;
-  customId?: string;
-  update?: (...args: unknown[]) => Promise<void>;
+  customId: string;
+  deferUpdate?: (...args: unknown[]) => Promise<void>;
+  editReply?: (...args: unknown[]) => Promise<void>;
   values?: string[];
 };
 
-function createContext(initialSettings?: GuildSettings): TestContext {
-  const settings: GuildSettings = initialSettings ?? {
+function createContext(initialSettings: Partial<GuildSettings> = {}): TestContext {
+  let settings: GuildSettings = {
     guildId: "guild-id",
     syncDiscordNamesToFf14: false,
+    ...initialSettings,
   };
   const patches: GuildSettingsPatch[] = [];
-
   return {
     fullparty: new FullpartyApiClient({
       baseUrl: "https://api.fullparty.gg",
@@ -453,15 +649,16 @@ function createContext(initialSettings?: GuildSettings): TestContext {
     }),
     fullpartyWebBaseUrl: "https://fullparty.gg",
     guildSettings: {
-      get: (guildId) =>
-        Promise.resolve({
-          ...settings,
-          guildId,
-        }),
+      get: (guildId) => Promise.resolve({ ...settings, guildId }),
       update: (guildId, patch) => {
         patches.push(patch);
-
-        return Promise.resolve(mergeTestSettings(settings, guildId, patch));
+        const values = Object.fromEntries(
+          Object.entries({ ...settings, ...patch, guildId }).filter(
+            ([, value]) => value !== null,
+          ),
+        );
+        settings = values as GuildSettings;
+        return Promise.resolve({ ...settings });
       },
     },
     logger: {
@@ -475,162 +672,73 @@ function createContext(initialSettings?: GuildSettings): TestContext {
   };
 }
 
-function mergeTestSettings(
-  settings: GuildSettings,
-  guildId: string,
-  patch: GuildSettingsPatch,
-): GuildSettings {
-  const next: GuildSettings = {
-    ...settings,
-    guildId,
-    ...(settings.runRoleTemplateOverrides
-      ? { runRoleTemplateOverrides: settings.runRoleTemplateOverrides }
-      : {}),
-    syncDiscordNamesToFf14:
-      patch.syncDiscordNamesToFf14 ?? settings.syncDiscordNamesToFf14,
-    scheduleRefreshEnabled:
-      patch.scheduleRefreshEnabled ?? settings.scheduleRefreshEnabled ?? false,
-    scheduleRefreshIntervalDays:
-      patch.scheduleRefreshIntervalDays ?? settings.scheduleRefreshIntervalDays ?? 1,
-  };
-
-  setOptionalSetting(next, "botLogChannelId", patch, settings);
-  setOptionalSetting(next, "botModeratorRoleId", patch, settings);
-  setOptionalSetting(next, "runAnnouncementChannelId", patch, settings);
-  setOptionalSetting(next, "upcomingRaiderRoleId", patch, settings);
-  setOptionalSetting(next, "scheduleRefreshChannelId", patch, settings);
-
-  return next;
-}
-
-function setOptionalSetting(
-  next: GuildSettings,
-  key: keyof Omit<
-    GuildSettingsPatch,
-    | "runRoleTemplateOverrides"
-    | "syncDiscordNamesToFf14"
-    | "scheduleRefreshEnabled"
-    | "scheduleRefreshIntervalDays"
-  >,
-  patch: GuildSettingsPatch,
-  settings: GuildSettings,
-): void {
-  const value = Object.prototype.hasOwnProperty.call(patch, key)
-    ? patch[key]
-    : settings[key];
-
-  if (value) {
-    next[key] = value;
-  }
-}
-
 function createChatInputInteraction(
   options: BaseInteractionOptions = {},
 ): ChatInputCommandInteraction {
-  const reply = createAsyncRecorder();
-
   return {
-    guildId: options.guildId ?? "guild-id",
+    guildId: options.guildId === undefined ? "guild-id" : options.guildId,
     inGuild: options.inGuild ?? (() => true),
     memberPermissions:
       options.memberPermissions ??
       new PermissionsBitField(PermissionFlagsBits.ManageGuild),
-    reply: options.reply ?? reply.fn,
+    reply: options.reply ?? createAsyncRecorder().fn,
   } as unknown as ChatInputCommandInteraction;
 }
 
-function createChannelSelectInteraction(
-  options: ComponentInteractionOptions = {},
-): ChannelSelectMenuInteraction {
-  const reply = createAsyncRecorder();
-  const update = createAsyncRecorder();
-
+function createComponentInteraction(
+  kind: "button" | "channel" | "role" | "string",
+  options: ComponentInteractionOptions,
+):
+  | ButtonInteraction
+  | ChannelSelectMenuInteraction
+  | RoleSelectMenuInteraction
+  | StringSelectMenuInteraction {
   return {
-    customId: options.customId ?? "setup:bot_log_channel",
-    guildId: options.guildId ?? "guild-id",
+    customId: options.customId,
+    guildId: options.guildId === undefined ? "guild-id" : options.guildId,
     inGuild: options.inGuild ?? (() => true),
-    isButton: () => false,
-    isChannelSelectMenu: () => true,
-    isRoleSelectMenu: () => false,
+    isChatInputCommand: () => false,
+    isButton: () => kind === "button",
+    isChannelSelectMenu: () => kind === "channel",
+    isRoleSelectMenu: () => kind === "role",
+    isStringSelectMenu: () => kind === "string",
     memberPermissions:
       options.memberPermissions ??
       new PermissionsBitField(PermissionFlagsBits.ManageGuild),
-    channels: {
-      get: (channelId: string) =>
-        channelId === (options.values ?? ["channel-id"]).at(0)
-          ? options.channel
-          : undefined,
-    },
-    guild: {
-      members: {
-        me: {
-          id: "bot-user-id",
-        },
-      },
-    },
-    reply: options.reply ?? reply.fn,
-    update: options.update ?? update.fn,
-    values: options.values ?? ["channel-id"],
-  } as unknown as ChannelSelectMenuInteraction;
-}
-
-function createRoleSelectInteraction(
-  options: ComponentInteractionOptions = {},
-): RoleSelectMenuInteraction {
-  const reply = createAsyncRecorder();
-  const update = createAsyncRecorder();
-
-  return {
-    customId: options.customId ?? "setup:upcoming_raider_role",
-    guildId: options.guildId ?? "guild-id",
-    inGuild: options.inGuild ?? (() => true),
-    isButton: () => false,
-    isChannelSelectMenu: () => false,
-    isRoleSelectMenu: () => true,
-    memberPermissions:
-      options.memberPermissions ??
-      new PermissionsBitField(PermissionFlagsBits.ManageGuild),
-    reply: options.reply ?? reply.fn,
-    update: options.update ?? update.fn,
-    values: options.values ?? ["role-id"],
-  } as unknown as RoleSelectMenuInteraction;
-}
-
-function createButtonInteraction(
-  options: ComponentInteractionOptions = {},
-): ButtonInteraction {
-  const reply = createAsyncRecorder();
-  const update = createAsyncRecorder();
-
-  return {
-    customId: options.customId ?? "setup:name_sync:enabled",
-    guildId: options.guildId ?? "guild-id",
-    inGuild: options.inGuild ?? (() => true),
-    isButton: () => true,
-    isChannelSelectMenu: () => false,
-    isRoleSelectMenu: () => false,
-    memberPermissions:
-      options.memberPermissions ??
-      new PermissionsBitField(PermissionFlagsBits.ManageGuild),
-    reply: options.reply ?? reply.fn,
-    update: options.update ?? update.fn,
+    channels: { get: () => options.channel },
+    guild: { members: { me: { id: "bot-user-id" } } },
+    reply: options.reply ?? createAsyncRecorder().fn,
+    deferUpdate: options.deferUpdate ?? createAsyncRecorder().fn,
+    editReply: options.editReply ?? createAsyncRecorder().fn,
+    values: options.values ?? ["selected-id"],
+    user: { id: "manager" },
   } as unknown as ButtonInteraction;
 }
 
-function getReplyComponents(reply: AsyncRecorder): unknown[] {
-  const firstCall = reply.calls.at(0);
-  const firstArg = firstCall?.at(0);
+function response(recorder: AsyncRecorder, index = 0): unknown {
+  return recorder.calls[index]?.[0];
+}
 
-  if (!isRecord(firstArg) || !Array.isArray(firstArg.components)) {
-    return [];
-  }
+function customIds(message: unknown): string[] {
+  return messageComponents(message).flatMap((component) =>
+    component.custom_id ? [component.custom_id] : [],
+  );
+}
 
-  return firstArg.components;
+function expectV2Edit(message: unknown): void {
+  expect(message).toMatchObject({
+    flags: MessageFlags.IsComponentsV2,
+    content: null,
+    embeds: [],
+  });
+  expect(messageComponents(message).some((component) => component.type === 17)).toBe(
+    true,
+  );
+  expect(customIds(message).every((id) => id.startsWith("setup:"))).toBe(true);
 }
 
 function createAsyncRecorder(): AsyncRecorder {
   const calls: unknown[][] = [];
-
   return {
     calls,
     fn: (...args) => {
@@ -638,8 +746,4 @@ function createAsyncRecorder(): AsyncRecorder {
       return Promise.resolve();
     },
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }

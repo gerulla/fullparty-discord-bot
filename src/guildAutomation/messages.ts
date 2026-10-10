@@ -1,4 +1,5 @@
 import type { MessageCreateOptions } from "discord.js";
+import { resolveV2MessageIcons } from "../discord/v2.js";
 import { recordAdminGuildMessage } from "../admin/telemetryRecorder.js";
 import { getDiscordApiErrorCode, getErrorMessage } from "../lib/errors.js";
 import { getStringProperty, isRecord } from "../lib/valueReaders.js";
@@ -29,7 +30,9 @@ export async function sendBotLogMessage(
     const channel = await options.client.channels.fetch(channelId);
 
     if (isSendableChannel(channel)) {
-      const sentMessage = await channel.send(message);
+      const sentMessage = await channel.send(
+        resolveV2MessageIcons(message, options.client),
+      );
 
       recordAdminGuildMessage(options.context.adminStore, options.context.logger, {
         channelId,

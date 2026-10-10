@@ -24,12 +24,20 @@ export type UserDmQueuedResult = {
   rateLimited: boolean;
 };
 
+export type UserDmDuplicateResult = {
+  discordUserId: string;
+  duplicate: true;
+  queued: false;
+  rateLimited: false;
+};
+
 export type UserDmRateLimiterResult<T extends Record<string, unknown>> =
   | (T & {
       queued: false;
       rateLimited: false;
     })
-  | UserDmQueuedResult;
+  | UserDmQueuedResult
+  | UserDmDuplicateResult;
 
 export type UserDmQueueSnapshot = {
   discordUserId: string;
@@ -39,12 +47,29 @@ export type UserDmQueueSnapshot = {
 };
 
 type QueuedUserDm<T extends Record<string, unknown>> = {
+  attempts: number;
+  availableAt: number;
   enqueuedAt: number;
+  firstAttemptAt: number | null;
+  nonceProtected: boolean;
+  jobId?: number;
   operation: () => Promise<T>;
+  pendingWrite?:
+    | { kind: "retry"; availableAt: number; error: unknown }
+    | {
+        kind: "complete";
+        outcome: { sentAt: number } | { error: unknown; uncertain?: boolean };
+      };
 };
 
-const defaultLimit = 2;
-const defaultWindowMs = 300_000;
+const defaultLimit = 5;
+const defaultWindowMs = 5_000;
+const retryDelaysMs = [5_000, 30_000];
+const maxAttempts = retryDelaysMs.length + 1;
+const persistenceRetryDelayMs = 5_000;
+// Discord only deduplicates nonces from the past few minutes. Keep retries well
+// inside that period; an uncertain result must never trigger a much later resend.
+const protectedRetryWindowMs = 60_000;
 
 export class UserDmRateLimiter {
   private readonly failureReporter: FailureReporter | undefined;
@@ -69,6 +94,10 @@ export class UserDmRateLimiter {
     this.paused = options.startPaused ?? false;
     for (const [id, times] of this.store?.sentTimes(this.windowMs) ?? [])
       this.sentAtByUser.set(id, times);
+    this.logger.info("User DM pacing configured.", {
+      limit: this.limit,
+      windowMs: this.windowMs,
+    });
   }
 
   public restore(
@@ -78,8 +107,15 @@ export class UserDmRateLimiter {
     this.restored = true;
     for (const job of this.store?.pending() ?? []) {
       this.getQueue(job.payload.discordUserId).push({
+        attempts: job.attempts,
+        availableAt: job.availableAt,
         enqueuedAt: job.queuedAt,
-        operation: this.persistedOperation(job.id, () => processor(job.payload)),
+        firstAttemptAt: job.firstAttemptAt,
+        nonceProtected: Boolean(
+          job.payload.message.nonce && job.payload.message.enforceNonce,
+        ),
+        jobId: job.id,
+        operation: () => processor(job.payload),
       });
       this.scheduleDrain(job.payload.discordUserId);
     }
@@ -97,7 +133,13 @@ export class UserDmRateLimiter {
   ): Promise<UserDmRateLimiterResult<T>> {
     if (this.stopped) throw new Error("DM delivery is shutting down.");
     const jobId = payload ? this.store?.enqueue(payload) : undefined;
-    if (jobId !== undefined) operation = this.persistedOperation(jobId, operation);
+    if (payload && this.store && jobId === undefined) {
+      this.logger.info("Duplicate user DM delivery skipped.", {
+        discordUserId,
+        notificationDeliveryId: payload.metadata.notificationDeliveryId,
+      });
+      return { discordUserId, duplicate: true, queued: false, rateLimited: false };
+    }
     const queue = this.queues.get(discordUserId);
 
     // Persisted webhook jobs must acknowledge acceptance without waiting for
@@ -114,17 +156,24 @@ export class UserDmRateLimiter {
 
     const activeQueue = this.getQueue(discordUserId);
     const queuePosition = activeQueue.length + 1;
-    const delayMs = this.getAvailableDelay(discordUserId);
+    const delayMs = this.getQueueDelay(discordUserId);
 
     activeQueue.push({
+      attempts: 0,
+      availableAt: 0,
       enqueuedAt: Date.now(),
+      firstAttemptAt: null,
+      nonceProtected: Boolean(payload?.message.nonce && payload.message.enforceNonce),
+      ...(jobId === undefined ? {} : { jobId }),
       operation,
     });
     this.scheduleDrain(discordUserId, delayMs);
-    this.logger.debug("User DM queued for delivery.", {
+    this.logger.info("User DM queued for delivery.", {
       discordUserId,
+      notificationDeliveryId: payload?.metadata.notificationDeliveryId,
       queuePosition,
       rateLimited: delayMs > 0,
+      currentCooldownMs: delayMs,
     });
 
     return {
@@ -150,27 +199,11 @@ export class UserDmRateLimiter {
       await new Promise((resolve) => setTimeout(resolve, 10));
   }
 
-  private persistedOperation<T extends Record<string, unknown>>(
-    id: number,
-    operation: () => Promise<T>,
-  ): () => Promise<T> {
-    return async () => {
-      try {
-        const result = await operation();
-        this.store?.complete(id);
-        return result;
-      } catch (error) {
-        this.store?.complete(id, getErrorMessage(error));
-        throw error;
-      }
-    };
-  }
-
   public getQueueSnapshot(): UserDmQueueSnapshot[] {
     const userIds = new Set([...this.queues.keys(), ...this.sentAtByUser.keys()]);
 
     return [...userIds].map((discordUserId) => {
-      const delayMs = this.getAvailableDelay(discordUserId);
+      const delayMs = this.getQueueDelay(discordUserId);
 
       return {
         discordUserId,
@@ -205,13 +238,14 @@ export class UserDmRateLimiter {
 
   private scheduleDrain(
     discordUserId: string,
-    delayMs = this.getAvailableDelay(discordUserId),
+    delayMs = this.getQueueDelay(discordUserId),
   ) {
     const queue = this.queues.get(discordUserId);
 
     if (
       this.stopped ||
       this.paused ||
+      this.processingUserIds.has(discordUserId) ||
       !queue ||
       queue.length === 0 ||
       this.timers.has(discordUserId)
@@ -237,7 +271,7 @@ export class UserDmRateLimiter {
       return;
     }
 
-    const delayMs = this.getAvailableDelay(discordUserId);
+    const delayMs = this.getQueueDelay(discordUserId);
 
     if (delayMs > 0) {
       this.scheduleDrain(discordUserId, delayMs);
@@ -256,33 +290,140 @@ export class UserDmRateLimiter {
       this.queues.delete(discordUserId);
     }
 
+    this.processingUserIds.add(discordUserId);
+    let needsPersistence = true;
     try {
-      await this.sendImmediately(discordUserId, queuedDm.operation);
-      this.logger.debug("Queued user DM delivered.", {
-        discordUserId,
-        waitedMs: Date.now() - queuedDm.enqueuedAt,
-      });
+      // Keep Discord's outcome while retrying a failed SQLite write. Retrying
+      // completion must never execute the already finished Discord operation.
+      if (!queuedDm.pendingWrite) {
+        if (queuedDm.attempts > 0 && !canRetryProtectedDm(queuedDm)) {
+          queuedDm.pendingWrite = {
+            kind: "complete",
+            outcome: { error: uncertainDeliveryError(), uncertain: true },
+          };
+        } else if (queuedDm.attempts >= maxAttempts) {
+          queuedDm.pendingWrite = {
+            kind: "complete",
+            outcome: { error: uncertainDeliveryError(), uncertain: true },
+          };
+        } else {
+          const attemptStartedAt = Date.now();
+          if (queuedDm.jobId !== undefined)
+            this.store?.beginAttempt(queuedDm.jobId, attemptStartedAt);
+          queuedDm.firstAttemptAt ??= attemptStartedAt;
+          queuedDm.attempts++;
+          try {
+            await queuedDm.operation();
+            queuedDm.pendingWrite = { kind: "complete", outcome: { sentAt: Date.now() } };
+          } catch (error) {
+            const retryDelay = retryDelaysMs[queuedDm.attempts - 1];
+            const retryable = isRetryableDmFailure(error);
+            queuedDm.pendingWrite =
+              queuedDm.jobId !== undefined &&
+              retryDelay !== undefined &&
+              retryable &&
+              canRetryProtectedDm(queuedDm, retryDelay)
+                ? { kind: "retry", availableAt: Date.now() + retryDelay, error }
+                : {
+                    kind: "complete",
+                    outcome:
+                      retryable || queuedDm.attempts > 1
+                        ? { error: uncertainDeliveryError(error), uncertain: true }
+                        : { error },
+                  };
+          }
+        }
+      }
+
+      const write = queuedDm.pendingWrite;
+      if (write.kind === "retry") {
+        if (queuedDm.jobId !== undefined)
+          this.store?.retry(
+            queuedDm.jobId,
+            write.availableAt,
+            getErrorMessage(write.error),
+          );
+        delete queuedDm.pendingWrite;
+        queuedDm.availableAt = write.availableAt;
+        this.getQueue(discordUserId).unshift(queuedDm);
+        this.logger.warn("Queued user DM delivery will retry.", {
+          discordUserId,
+          attempt: queuedDm.attempts,
+          nextAttemptAt: new Date(queuedDm.availableAt).toISOString(),
+          error: serializeFailureError(write.error),
+        });
+        return;
+      }
+
+      const outcome = write.outcome;
+      if (queuedDm.jobId !== undefined)
+        this.store?.complete(
+          queuedDm.jobId,
+          "error" in outcome ? getErrorMessage(outcome.error) : undefined,
+          "error" in outcome && outcome.uncertain === true,
+        );
+      needsPersistence = false;
+      delete queuedDm.pendingWrite;
+      if ("sentAt" in outcome) {
+        this.recordSent(discordUserId, outcome.sentAt);
+        this.logger.info("Queued user DM delivered.", {
+          discordUserId,
+          attempts: queuedDm.attempts,
+          waitedMs: Date.now() - queuedDm.enqueuedAt,
+        });
+      } else {
+        this.reportDeliveryFailure(discordUserId, queuedDm.enqueuedAt, outcome.error);
+      }
     } catch (error) {
-      this.logger.warn("Queued user DM delivery failed.", {
+      // No Discord call follows a failed beginAttempt. Later persistence failures
+      // retain pendingWrite so only that write is retried when SQLite recovers.
+      if (needsPersistence && queuedDm.jobId !== undefined) {
+        queuedDm.availableAt = Date.now() + persistenceRetryDelayMs;
+        this.getQueue(discordUserId).unshift(queuedDm);
+      }
+      this.logger.warn("Unable to persist queued user DM progress.", {
         discordUserId,
+        retrying: needsPersistence && queuedDm.jobId !== undefined,
         error: serializeFailureError(error),
       });
       recordFailureSafely(this.failureReporter, this.logger, {
-        action: "queued_dm_delivery",
-        affectsHealth: !isExpectedUserDmFailure(error),
-        details: {
-          error: serializeFailureError(error),
-          waitedMs: Date.now() - queuedDm.enqueuedAt,
-        },
+        action: "dm_queue_persistence",
+        details: { error: serializeFailureError(error) },
         discordUserId,
-        errorCode: getDiscordErrorCode(error),
         message: getErrorMessage(error),
         severity: "warn",
-        source: "discord_api",
+        source: "queue",
       });
     } finally {
+      this.processingUserIds.delete(discordUserId);
       this.scheduleDrain(discordUserId);
     }
+  }
+
+  private reportDeliveryFailure(
+    discordUserId: string,
+    enqueuedAt: number,
+    error: unknown,
+  ): void {
+    this.logger.warn("Queued user DM delivery failed.", {
+      discordUserId,
+      error: serializeFailureError(error),
+    });
+    recordFailureSafely(this.failureReporter, this.logger, {
+      action: "queued_dm_delivery",
+      affectsHealth: !isExpectedUserDmFailure(error),
+      details: { error: serializeFailureError(error), waitedMs: Date.now() - enqueuedAt },
+      discordUserId,
+      errorCode: getDiscordErrorCode(error),
+      message: getErrorMessage(error),
+      severity: "warn",
+      source: "discord_api",
+    });
+  }
+
+  private getQueueDelay(discordUserId: string): number {
+    const availableAt = this.queues.get(discordUserId)?.[0]?.availableAt ?? 0;
+    return Math.max(this.getAvailableDelay(discordUserId), availableAt - Date.now(), 0);
   }
 
   private getQueue(discordUserId: string): QueuedUserDm<Record<string, unknown>>[] {
@@ -315,12 +456,12 @@ export class UserDmRateLimiter {
     return Math.max(0, oldestSentAt + this.windowMs - Date.now());
   }
 
-  private recordSent(discordUserId: string): void {
+  private recordSent(discordUserId: string, timestamp = Date.now()): void {
     const sentAt = this.pruneSentAt(discordUserId);
 
-    sentAt.push(Date.now());
+    sentAt.push(timestamp);
     this.sentAtByUser.set(discordUserId, sentAt);
-    this.store?.recordSent(discordUserId, Date.now(), this.windowMs);
+    this.store?.recordSent(discordUserId, timestamp, this.windowMs);
   }
 
   private pruneSentAt(discordUserId: string): number[] {
@@ -338,6 +479,50 @@ export class UserDmRateLimiter {
 
     return sentAt;
   }
+}
+
+function canRetryProtectedDm(
+  job: QueuedUserDm<Record<string, unknown>>,
+  delayMs = 0,
+): boolean {
+  if (!job.nonceProtected || job.firstAttemptAt === null) return false;
+  const elapsed = Date.now() - job.firstAttemptAt;
+  return elapsed >= 0 && elapsed + delayMs < protectedRetryWindowMs;
+}
+
+function uncertainDeliveryError(cause?: unknown): Error & { code: string } {
+  return Object.assign(
+    new Error(
+      "DM delivery outcome is unknown. Automatic retries stopped to avoid duplicate messages; review delivery before resending.",
+      { cause },
+    ),
+    { code: "DM_DELIVERY_UNCERTAIN" },
+  );
+}
+
+const retryableNetworkCodes = new Set([
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "EAI_AGAIN",
+  "ENETUNREACH",
+  "EHOSTUNREACH",
+  "EPIPE",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT",
+  "UND_ERR_SOCKET",
+]);
+
+function isRetryableDmFailure(error: unknown, depth = 0): boolean {
+  if (!isRecord(error) || depth > 4) return false;
+  // A concrete HTTP rejection takes precedence over nested transport errors.
+  if (typeof error.status === "number")
+    return error.status === 408 || (error.status >= 500 && error.status <= 599);
+  if (typeof error.code === "string" && retryableNetworkCodes.has(error.code))
+    return true;
+  if (error.name === "AbortError" || error.name === "TimeoutError") return true;
+  return isRetryableDmFailure(error.cause, depth + 1);
 }
 
 function isExpectedUserDmFailure(error: unknown): boolean {

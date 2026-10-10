@@ -129,6 +129,7 @@ describe("SqliteGuildSettingsStore", () => {
 
     await store.update("guild-id", {
       botLogChannelId: "bot-log-channel-id",
+      groupSlug: "example-raiders",
       linkedAt: "2026-06-01T10:00:00.000Z",
       runRoleTemplateOverrides: [
         {
@@ -148,6 +149,7 @@ describe("SqliteGuildSettingsStore", () => {
     await expect(reopenedStore.get("guild-id")).resolves.toMatchObject({
       botLogChannelId: "bot-log-channel-id",
       guildId: "guild-id",
+      groupSlug: "example-raiders",
       linkedAt: "2026-06-01T10:00:00.000Z",
       runRoleTemplateOverrides: [
         expect.objectContaining({
@@ -184,6 +186,39 @@ describe("SqliteGuildSettingsStore", () => {
     await expect(store.get("guild-id")).resolves.not.toHaveProperty(
       "runRoleTemplateOverrides",
     );
+  });
+
+  it("migrates existing settings to store an optional group slug without resetting settings", async () => {
+    const { databasePath, store } = await createStoreWithPath();
+    await store.update("guild-id", {
+      botLogChannelId: "existing-channel",
+      linkedAt: "2026-06-01T10:00:00.000Z",
+    });
+    store.close();
+    stores.splice(stores.indexOf(store), 1);
+    const legacy = new DatabaseSync(databasePath);
+    try {
+      legacy.exec("ALTER TABLE guild_settings DROP COLUMN group_slug");
+      legacy.prepare("DELETE FROM bot_schema_migrations WHERE version = ?").run(10);
+    } finally {
+      legacy.close();
+    }
+
+    const migrated = new SqliteGuildSettingsStore(databasePath);
+    stores.push(migrated);
+    await expect(migrated.get("guild-id")).resolves.toMatchObject({
+      botLogChannelId: "existing-channel",
+      linkedAt: "2026-06-01T10:00:00.000Z",
+    });
+    await expect(migrated.get("guild-id")).resolves.not.toHaveProperty("groupSlug");
+    await migrated.update("guild-id", { groupSlug: "example-raiders" });
+    await migrated.update("guild-id", { syncDiscordNamesToFf14: true });
+    await expect(migrated.get("guild-id")).resolves.toMatchObject({
+      groupSlug: "example-raiders",
+      botLogChannelId: "existing-channel",
+    });
+    await migrated.update("guild-id", { groupSlug: null });
+    await expect(migrated.get("guild-id")).resolves.not.toHaveProperty("groupSlug");
   });
 
   async function createStore(): Promise<SqliteGuildSettingsStore> {

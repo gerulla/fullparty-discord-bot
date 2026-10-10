@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   SqliteGuildRunReminderQueue,
@@ -108,6 +108,47 @@ describe("SqliteGuildRunReminderQueue", () => {
       runId: 123,
     });
     expect(completedResult.jobId).not.toBe(reminderResult.jobId);
+  });
+
+  it("runs the first-attempt notice once across processing retries", async () => {
+    const onFirstAttempt = vi.fn(() => Promise.resolve());
+    const processor = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Temporary processing failure"))
+      .mockResolvedValue({ ok: true });
+    const { databasePath, queue } = await createQueue({ onFirstAttempt, processor });
+    queue.start();
+    const job = { data: createRunReminderData(), kind: "run_reminder" as const };
+    await queue.enqueue(job);
+    await waitFor(() => readJobStatuses(databasePath)[0] === "completed");
+    await queue.enqueue(job);
+
+    expect(onFirstAttempt).toHaveBeenCalledExactlyOnceWith(job);
+    expect(processor).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not repeat the start notice when a failed attempt resumes after restart", async () => {
+    const onFirstAttempt = vi.fn(() => Promise.resolve());
+    const first = await createQueue({
+      onFirstAttempt,
+      processor: () => Promise.reject(new Error("Temporary processing failure")),
+    });
+    first.queue.start();
+    await first.queue.enqueue({ data: createRunReminderData(), kind: "run_reminder" });
+    await waitFor(() => onFirstAttempt.mock.calls.length === 1);
+    await first.queue.stop();
+    queues.splice(queues.indexOf(first.queue), 1);
+
+    const resumedNotice = vi.fn(() => Promise.resolve());
+    const resumed = await createQueue({
+      databasePath: first.databasePath,
+      onFirstAttempt: resumedNotice,
+    });
+    resumed.queue.start();
+    await waitFor(() => readJobStatuses(first.databasePath)[0] === "completed");
+
+    expect(onFirstAttempt).toHaveBeenCalledOnce();
+    expect(resumedNotice).not.toHaveBeenCalled();
   });
 
   async function createQueue(

@@ -5,7 +5,7 @@ import {
   PermissionFlagsBits,
   PermissionsBitField,
 } from "discord.js";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { BotContext } from "../src/bot/context.js";
 import { applicationsCommand } from "../src/commands/applications.js";
@@ -25,6 +25,7 @@ import { postRunsCommand } from "../src/commands/postRuns.js";
 import { runsCommand } from "../src/commands/runs.js";
 import { FullpartyApiClient } from "../src/fullparty/client.js";
 import { LatestPayloadStore } from "../src/payloads/latestPayloadStore.js";
+import { messageText } from "./helpers/messages.js";
 
 describe("command execution", () => {
   it("replies to ping", async () => {
@@ -84,35 +85,43 @@ describe("command execution", () => {
 
   it("shows help in DMs", async () => {
     const reply = createAsyncRecorder();
+    const context = createContext();
+    const settingsLookup = vi.spyOn(context.guildSettings, "get");
 
     await helpCommand.execute(
       {
         inGuild: () => false,
         reply: reply.fn,
       } as unknown as ChatInputCommandInteraction,
-      createContext(),
+      context,
     );
 
-    expect(reply.calls).toEqual([
-      [
-        {
-          content: expect.stringContaining(
-            "Most FullParty commands need your Discord account linked first.",
-          ) as string,
-        },
-      ],
-    ]);
-    expect(reply.calls[0]?.[0]).toMatchObject({
-      content: expect.stringContaining("`/runs`") as string,
-    });
-    expect(reply.calls[0]?.[0]).toMatchObject({
-      content: expect.stringContaining("`/faq`") as string,
-    });
-    expect(reply.calls[0]?.[0]).toEqual(
-      expect.objectContaining({
-        content: expect.not.stringContaining("`/payload`") as string,
-      }),
+    expect(reply.calls).toHaveLength(1);
+    const message = getFirstMessageOptions(reply);
+    expect(message).not.toHaveProperty("flags");
+    expect(message.content).toContain("**FullParty Help · Direct Messages**");
+    expect(message.content).toContain("**DM commands**");
+    for (const command of ["/link", "/runs", "/applications", "/faq", "/ping", "/help"]) {
+      expect(message.content).toContain(`\`${command}`);
+    }
+    for (const command of [
+      "/info",
+      "/setup",
+      "/guildruns",
+      "/postruns",
+      "/assignrunrole",
+      "/debugassignrunrole",
+      "/clearrole",
+      "/rolesync",
+      "/payload",
+    ]) {
+      expect(message.content).not.toContain(`\`${command}`);
+    }
+    expect(message.content).toContain(
+      "http://fullparty.test/auth/discord-app/user/redirect",
     );
+    expect(message.content?.length).toBeLessThanOrEqual(2000);
+    expect(settingsLookup).not.toHaveBeenCalled();
   });
 
   it("shows the FullParty setup FAQ ephemerally in guilds", async () => {
@@ -136,25 +145,147 @@ describe("command execution", () => {
     });
   });
 
-  it("shows help ephemerally in guilds", async () => {
-    const reply = createAsyncRecorder();
+  it.each([
+    {
+      name: "ordinary member",
+      permissions: [],
+      member: { roles: [] },
+      canModerate: false,
+      canManageServer: false,
+      canManageRoles: false,
+    },
+    {
+      name: "unrelated role",
+      permissions: [],
+      member: { roles: ["other-role"] },
+      canModerate: false,
+      canManageServer: false,
+      canManageRoles: false,
+    },
+    {
+      name: "moderator role from API",
+      permissions: [],
+      member: { roles: ["bot-moderator"] },
+      canModerate: true,
+      canManageServer: false,
+      canManageRoles: false,
+    },
+    {
+      name: "moderator role from cache",
+      permissions: [],
+      member: { roles: { cache: new Map([["bot-moderator", {}]]) } },
+      canModerate: true,
+      canManageServer: false,
+      canManageRoles: false,
+    },
+    {
+      name: "moderator role from role lookup",
+      permissions: [],
+      member: { roles: new Set(["bot-moderator"]) },
+      canModerate: true,
+      canManageServer: false,
+      canManageRoles: false,
+    },
+    {
+      name: "Manage Server only",
+      permissions: [PermissionFlagsBits.ManageGuild],
+      member: { roles: [] },
+      canModerate: true,
+      canManageServer: true,
+      canManageRoles: false,
+    },
+    {
+      name: "Manage Roles only",
+      permissions: [PermissionFlagsBits.ManageRoles],
+      member: { roles: [] },
+      canModerate: false,
+      canManageServer: false,
+      canManageRoles: true,
+    },
+    {
+      name: "moderator with Manage Roles",
+      permissions: [PermissionFlagsBits.ManageRoles],
+      member: { roles: ["bot-moderator"] },
+      canModerate: true,
+      canManageServer: false,
+      canManageRoles: true,
+    },
+    {
+      name: "administrator",
+      permissions: [PermissionFlagsBits.Administrator],
+      member: { roles: [] },
+      canModerate: true,
+      canManageServer: true,
+      canManageRoles: true,
+    },
+  ])(
+    "shows private guild help for $name based on actual command permissions",
+    async ({ permissions, member, canModerate, canManageServer, canManageRoles }) => {
+      const reply = createAsyncRecorder();
+      const deferReply = createAsyncRecorder();
+      const editReply = createAsyncRecorder();
+      const context = createContext();
+      const settingsLookup = vi.fn((guildId: string) => {
+        expect(deferReply.calls).toEqual([[{ flags: MessageFlags.Ephemeral }]]);
+        return Promise.resolve({
+          guildId,
+          syncDiscordNamesToFf14: false,
+          botModeratorRoleId: "bot-moderator",
+        });
+      });
+      context.guildSettings.get = settingsLookup;
 
-    await helpCommand.execute(
-      {
-        inGuild: () => true,
-        reply: reply.fn,
-      } as unknown as ChatInputCommandInteraction,
-      createContext(),
-    );
+      await helpCommand.execute(
+        {
+          inGuild: () => true,
+          guildId: "guild-id",
+          memberPermissions: new PermissionsBitField(permissions),
+          member,
+          reply: reply.fn,
+          deferReply: deferReply.fn,
+          editReply: editReply.fn,
+        } as unknown as ChatInputCommandInteraction,
+        context,
+      );
 
-    expect(reply.calls).toHaveLength(1);
-    expect(reply.calls[0]?.[0]).toMatchObject({
-      content: expect.stringContaining("`/setup`") as string,
-      flags: MessageFlags.Ephemeral,
-    });
-  });
+      expect(reply.calls).toEqual([]);
+      expect(deferReply.calls).toEqual([[{ flags: MessageFlags.Ephemeral }]]);
+      expect(editReply.calls).toHaveLength(1);
+      const { content } = getFirstMessageOptions(editReply);
+      expect(typeof content).toBe("string");
+      expect(content).toContain("**FullParty Help · Server**");
+      expect(content).toContain("**Member commands**");
+      expect(content?.includes("**Admin commands**")).toBe(
+        canModerate || canManageServer || canManageRoles,
+      );
+      for (const command of ["/info", "/faq", "/ping", "/help"]) {
+        expect(content).toContain(`\`${command}`);
+      }
+      for (const command of [
+        "/guildruns",
+        "/postruns",
+        "/assignrunrole",
+        "/debugassignrunrole",
+        "/clearrole",
+      ]) {
+        expect(content?.includes(`\`${command}`)).toBe(canModerate);
+      }
+      expect(content?.includes("`/setup")).toBe(canManageServer);
+      expect(content?.includes("`/link token:")).toBe(canManageServer);
+      expect(content?.includes("`/rolesync")).toBe(canManageRoles);
+      expect(content).not.toContain("`/runs");
+      expect(content).not.toContain("`/applications");
+      expect(content).not.toContain("`/payload");
+      expect(content?.length).toBeLessThanOrEqual(2000);
+      if (canManageServer) {
+        expect(settingsLookup).not.toHaveBeenCalled();
+      } else {
+        expect(settingsLookup).toHaveBeenCalledExactlyOnceWith("guild-id");
+      }
+    },
+  );
 
-  it("clears a selected guild role", async () => {
+  it("lets a configured bot moderator clear a tracked active run role", async () => {
     const deferReply = createAsyncRecorder();
     const editReply = createAsyncRecorder();
     const deletedReasons: string[] = [];
@@ -187,6 +318,19 @@ describe("command execution", () => {
       },
       guildRunRoles: {
         get: () => Promise.resolve(undefined),
+        listByGuild: () =>
+          Promise.resolve([
+            {
+              createdAt: "2026-10-10T00:00:00.000Z",
+              discordGuildId: "guild-id",
+              roleId: "run-role-id",
+              roleName: runRole.name,
+              runId: 123,
+              status: "active",
+              templateRoleId: "template-role-id",
+              updatedAt: "2026-10-10T00:00:00.000Z",
+            },
+          ]),
         markDeleted: () => Promise.resolve(),
         markDeletedByRole: (_guildId, roleId) => {
           markedRoleIds.push(roleId);
@@ -346,6 +490,96 @@ describe("command execution", () => {
           content:
             "You need Manage Server or the configured FullParty bot moderator role to use this command.",
           flags: MessageFlags.Ephemeral,
+        },
+      ],
+    ]);
+  });
+
+  it.each([
+    "untracked",
+    "different role",
+    "different guild",
+    "deleted mapping",
+    "missing store",
+    "missing lookup",
+  ])("blocks clearrole for %s, even with Manage Roles", async (scenario) => {
+    const deleteRole = createAsyncRecorder();
+    const markDeleted = createAsyncRecorder();
+    const editReply = createAsyncRecorder();
+    const role = {
+      delete: deleteRole.fn,
+      editable: true,
+      id: "run-role-id",
+      managed: false,
+      name: "Run: Cloud of Darkness 21:00 UTC",
+    };
+    const context = createContext();
+    context.guildRunRoles =
+      scenario === "missing store"
+        ? undefined
+        : {
+            get: () => Promise.resolve(undefined),
+            ...(scenario === "missing lookup"
+              ? {}
+              : {
+                  listByGuild: () =>
+                    Promise.resolve(
+                      scenario === "untracked"
+                        ? []
+                        : [
+                            {
+                              createdAt: "2026-10-10T00:00:00.000Z",
+                              discordGuildId:
+                                scenario === "different guild"
+                                  ? "other-guild-id"
+                                  : "guild-id",
+                              roleId:
+                                scenario === "different role" ? "other-role-id" : role.id,
+                              roleName: role.name,
+                              runId: 123,
+                              status:
+                                scenario === "deleted mapping"
+                                  ? ("deleted" as const)
+                                  : ("active" as const),
+                              templateRoleId: "template-role-id",
+                              updatedAt: "2026-10-10T00:00:00.000Z",
+                            },
+                          ],
+                    ),
+                }),
+            markDeleted: markDeleted.fn,
+            markDeletedByRole: markDeleted.fn,
+            upsert: (mapping) => Promise.resolve(mapping),
+          };
+
+    await clearRoleCommand.execute(
+      {
+        appPermissions: new PermissionsBitField(PermissionFlagsBits.ManageRoles),
+        deferReply: createAsyncRecorder().fn,
+        editReply: editReply.fn,
+        guild: {
+          members: {},
+          roles: { cache: new Map([[role.id, role]]) },
+        },
+        guildId: "guild-id",
+        inGuild: () => true,
+        memberPermissions: new PermissionsBitField([
+          PermissionFlagsBits.ManageGuild,
+          PermissionFlagsBits.ManageRoles,
+        ]),
+        options: { getRole: () => ({ id: role.id }) },
+        user: { id: "moderator-id" },
+      } as unknown as ChatInputCommandInteraction,
+      context,
+    );
+
+    expect(deleteRole.calls).toEqual([]);
+    expect(markDeleted.calls).toEqual([]);
+    expect(editReply.calls).toEqual([
+      [
+        {
+          content:
+            "I can only clear an active FullParty run role tracked for this server. That role could not be verified; no roles were deleted.",
         },
       ],
     ]);
@@ -582,6 +816,61 @@ describe("command execution", () => {
       },
       source: "FullParty /runs API response",
     });
+  });
+
+  it.each([guildRunsCommand, assignRunRoleCommand, debugAssignRunRoleCommand])(
+    "uses V2 setup guidance for an unlinked guild in $data.name",
+    async (command) => {
+      const reply = createAsyncRecorder();
+      const calls: FetchCall[] = [];
+      await command.execute(
+        {
+          reply: reply.fn,
+          guildId: "guild-id",
+          inGuild: () => true,
+          memberPermissions: new PermissionsBitField(PermissionFlagsBits.ManageGuild),
+        } as unknown as ChatInputCommandInteraction,
+        createContext(createRecordingJsonFetcher({}, calls)),
+      );
+      expect(reply.calls).toMatchObject([
+        [
+          {
+            flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
+            allowedMentions: { parse: [], repliedUser: false },
+            components: [
+              { type: 10, content: expect.stringContaining("`/link`") as string },
+            ],
+          },
+        ],
+      ]);
+      expect(calls).toEqual([]);
+    },
+  );
+
+  it("uses V2 setup guidance when a guildruns assignment button's guild becomes unlinked", async () => {
+    const reply = createAsyncRecorder();
+    const calls: FetchCall[] = [];
+    await guildRunsCommand.handleComponent?.(
+      {
+        reply: reply.fn,
+        guildId: "guild-id",
+        customId: "guildruns:assign:guild-id:moderator-id:25:0:123",
+        isButton: () => true,
+        user: { id: "moderator-id" },
+      } as unknown as ButtonInteraction,
+      createContext(createRecordingJsonFetcher({}, calls)),
+    );
+    expect(reply.calls).toMatchObject([
+      [
+        {
+          flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
+          components: [
+            { type: 10, content: expect.stringContaining("`/link`") as string },
+          ],
+        },
+      ],
+    ]);
+    expect(calls).toEqual([]);
   });
 
   it("shows upcoming FullParty runs for a linked Discord guild", async () => {
@@ -989,7 +1278,7 @@ describe("command execution", () => {
     ]);
   });
 
-  it("posts upcoming FullParty runs to the configured member-facing channel", async () => {
+  it("posts upcoming FullParty runs to the configured schedule channel", async () => {
     const deferReply = createAsyncRecorder();
     const editReply = createAsyncRecorder();
     const sentMessages: unknown[] = [];
@@ -1125,6 +1414,75 @@ describe("command execution", () => {
       source: "FullParty /postruns API response",
     });
   });
+
+  it.each([false, true])(
+    "uses the saved Expanded format for /postruns posthere:%s",
+    async (postHere) => {
+      const context = createLinkedGuildContext(
+        createJsonFetcher({
+          data: [
+            {
+              title: "Expanded schedule run",
+              starts_at: "2026-10-22T17:00:00Z",
+              host: {
+                discord_user_id: "800000000000000001",
+                avatar_url: "https://example.com/avatar.png",
+              },
+              counts: { assigned_slots: 3, total_slots: 48, total_applicants: 1 },
+              urls: { application: "/groups/example/activities/1/application" },
+            },
+          ],
+        }),
+      );
+      const getSettings = context.guildSettings.get.bind(context.guildSettings);
+      context.guildSettings.get = async (guildId) => ({
+        ...(await getSettings(guildId)),
+        scheduleFormat: "expanded",
+      });
+      const send = vi.fn(() => Promise.resolve({ id: "expanded-message" }));
+      const fetchChannel = vi.fn(() => Promise.resolve({ send }));
+      const editReply = vi.fn(() => Promise.resolve());
+      await postRunsCommand.execute(
+        {
+          channel: { send },
+          channelId: "current-channel",
+          client: {
+            channels: { fetch: fetchChannel },
+            application: {
+              emojis: {
+                cache: new Map([
+                  ["123456789012345678", { id: "123456789012345678", name: "fpclock" }],
+                ]),
+              },
+            },
+          },
+          deferReply: vi.fn(() => Promise.resolve()),
+          editReply,
+          guildId: "1379217636696789022",
+          inGuild: () => true,
+          memberPermissions: new PermissionsBitField(PermissionFlagsBits.ManageGuild),
+          options: { getBoolean: () => postHere },
+          user: { id: "moderator-id" },
+        } as unknown as ChatInputCommandInteraction,
+        context,
+      );
+      expect(send).toHaveBeenCalledTimes(1);
+      const sent = (send.mock.calls as unknown[][])[0]?.[0];
+      expect(sent).toMatchObject({
+        flags: MessageFlags.IsComponentsV2,
+        allowedMentions: { parse: [] },
+      });
+      expect(sent).not.toHaveProperty("content");
+      expect(messageText(sent)).toContain("## Expanded schedule run");
+      expect(messageText(sent)).toContain("<:fpclock:123456789012345678>");
+      expect(fetchChannel).toHaveBeenCalledTimes(postHere ? 0 : 1);
+      expect(editReply).toHaveBeenCalledWith({
+        content: postHere
+          ? "Posted the upcoming runs summary in this channel."
+          : "Posted the upcoming runs summary in <#run-announcement-channel-id>.",
+      });
+    },
+  );
 
   it("posts upcoming FullParty runs in the triggering channel when requested", async () => {
     const deferReply = createAsyncRecorder();
@@ -1640,12 +1998,72 @@ describe("command execution", () => {
     });
   });
 
-  it("links the invoking Discord user to FullParty", async () => {
+  it.each([
+    { name: "ordinary member", permissions: new PermissionsBitField(0n) },
+    {
+      name: "member with Manage Roles only",
+      permissions: new PermissionsBitField(PermissionFlagsBits.ManageRoles),
+    },
+  ])(
+    "rejects guild linking for $name before any API or settings change",
+    async ({ permissions }) => {
+      const reply = createAsyncRecorder();
+      const deferReply = createAsyncRecorder();
+      const editReply = createAsyncRecorder();
+      const calls: FetchCall[] = [];
+      const context = createContext(createRecordingJsonFetcher({ linked: true }, calls));
+      context.guildSettings.get = vi.fn((guildId: string) =>
+        Promise.resolve({
+          guildId,
+          syncDiscordNamesToFf14: false,
+          botModeratorRoleId: "bot-moderator-role-id",
+        }),
+      );
+      const update = vi.spyOn(context.guildSettings, "update");
+      const linkUser = vi.spyOn(context.fullparty, "linkDiscordUser");
+      const linkGuild = vi.spyOn(context.fullparty, "linkDiscordGuild");
+
+      await linkCommand.execute(
+        {
+          appPermissions: new PermissionsBitField(PermissionFlagsBits.Administrator),
+          deferReply: deferReply.fn,
+          editReply: editReply.fn,
+          guildId: "1379217636696789022",
+          inGuild: () => true,
+          member: { roles: ["bot-moderator-role-id"] },
+          memberPermissions: permissions,
+          options: { getString: () => "VALID-GROUP-TOKEN" },
+          reply: reply.fn,
+          user: { id: "123456789012345678" },
+        } as unknown as ChatInputCommandInteraction,
+        context,
+      );
+
+      expect(reply.calls).toEqual([
+        [
+          {
+            content: "You need Manage Server to link this Discord server to FullParty.",
+            flags: MessageFlags.Ephemeral,
+          },
+        ],
+      ]);
+      expect(deferReply.calls).toEqual([]);
+      expect(editReply.calls).toEqual([]);
+      expect(calls).toEqual([]);
+      expect(linkGuild).not.toHaveBeenCalled();
+      expect(linkUser).not.toHaveBeenCalled();
+      expect(update).not.toHaveBeenCalled();
+      expect(context.payloads.get()).toBeUndefined();
+    },
+  );
+
+  it("links the invoking Discord user to FullParty without requiring server permissions", async () => {
     const deferReply = createAsyncRecorder();
     const editReply = createAsyncRecorder();
     const calls: FetchCall[] = [];
     const linkResponse = {
       linked: true,
+      data: { account_settings_url: "/settings/notifications" },
     };
     const context = createContext(createRecordingJsonFetcher(linkResponse, calls));
 
@@ -1654,6 +2072,7 @@ describe("command execution", () => {
         deferReply: deferReply.fn,
         editReply: editReply.fn,
         inGuild: () => false,
+        memberPermissions: null,
         options: {
           getString: () => " ABCD1234-EFGH5678 ",
         },
@@ -1668,7 +2087,7 @@ describe("command execution", () => {
     );
 
     expect(deferReply.calls).toEqual([[]]);
-    expect(editReply.calls).toEqual([
+    expect(editReply.calls).toMatchObject([
       [
         {
           content: "Validating code ABCD1234-EFGH5678 with the FullParty server...",
@@ -1676,11 +2095,16 @@ describe("command execution", () => {
       ],
       [
         {
-          content:
-            "✅ Your Discord account is now linked to FullParty. You can receive FullParty updates here and use the Discord integration features tied to your account.",
+          content: null,
+          embeds: [],
+          flags: MessageFlags.IsComponentsV2,
+          allowedMentions: { parse: [], repliedUser: false },
         },
       ],
     ]);
+    expect(JSON.stringify(editReply.calls[1])).toContain(
+      "http://fullparty.test/settings/notifications",
+    );
     expect(calls).toHaveLength(1);
     expect(parseJsonRequestBody(calls[0])).toEqual({
       avatar_url: "https://cdn.discordapp.com/avatar.png",
@@ -1701,76 +2125,133 @@ describe("command execution", () => {
     });
   });
 
-  it("links the invoking Discord guild to FullParty", async () => {
-    const deferReply = createAsyncRecorder();
-    const editReply = createAsyncRecorder();
-    const calls: FetchCall[] = [];
-    const linkResponse = {
-      linked: true,
-    };
-    const context = createContext(createRecordingJsonFetcher(linkResponse, calls));
-
-    await linkCommand.execute(
-      {
-        appPermissions: {
-          bitfield: 123456n,
+  it.each([
+    {
+      name: "wrapped group slug",
+      response: { linked: true, data: { group_slug: "raid-server" } },
+      settingsPath: "/groups/raid-server/dashboard/discord-integration",
+    },
+    {
+      name: "wrapped group object",
+      response: { linked: true, data: { group: { slug: "raid-server" } } },
+      settingsPath: "/groups/raid-server/dashboard/discord-integration",
+    },
+    {
+      name: "unwrapped group slug",
+      response: { linked: true, group_slug: "raid-server" },
+      settingsPath: "/groups/raid-server/dashboard/discord-integration",
+    },
+    {
+      name: "unwrapped group object",
+      response: { linked: true, group: { slug: "raid-server" } },
+      settingsPath: "/groups/raid-server/dashboard/discord-integration",
+    },
+    {
+      name: "explicit settings URL overriding the slug",
+      response: {
+        linked: true,
+        data: {
+          discord_settings_url:
+            "/groups/raid-server/dashboard/discord-integration?tab=bot",
+          group_slug: "other-slug",
         },
-        deferReply: deferReply.fn,
-        editReply: editReply.fn,
-        guild: {
-          iconURL: () => "https://cdn.discordapp.com/icons/server.png",
-          name: "Raid Server",
-        },
-        guildId: "1379217636696789022",
-        inGuild: () => true,
-        options: {
-          getString: () => " ABCD1234-EFGH5678 ",
-        },
-        user: {
-          id: "123456789012345678",
-        },
-      } as unknown as ChatInputCommandInteraction,
-      context,
-    );
-
-    expect(deferReply.calls).toEqual([[{ flags: MessageFlags.Ephemeral }]]);
-    expect(editReply.calls).toEqual([
-      [
-        {
-          content: "Validating code ABCD1234-EFGH5678 with the FullParty server...",
-        },
-      ],
-      [
-        {
-          content:
-            "✅ This Discord server is now linked to FullParty. FullParty can now use the server-side integration features configured for this guild.",
-        },
-      ],
-    ]);
-    expect(calls).toHaveLength(1);
-    expect(fetchInputToUrl(calls[0]?.input)).toBe(
-      "http://fullparty.test/api/integrations/v1/bot/discord-guilds/link",
-    );
-    expect(parseJsonRequestBody(calls[0])).toEqual({
-      discord_guild_id: "1379217636696789022",
-      icon_url: "https://cdn.discordapp.com/icons/server.png",
-      name: "Raid Server",
-      permissions: "123456",
-      token: "ABCD1234-EFGH5678",
-    });
-    expect(context.payloads.get()).toMatchObject({
-      payload: {
-        command: "link",
-        discord_guild_id: "1379217636696789022",
-        ok: true,
-        response: linkResponse,
-        source: "fullparty.api",
       },
-      source: "FullParty /link API response",
-    });
-  });
+      settingsPath: "/groups/raid-server/dashboard/discord-integration?tab=bot",
+    },
+    {
+      name: "blank explicit URL falling back to the slug",
+      response: {
+        linked: true,
+        data: { discord_settings_url: "   ", group_slug: "raid-server" },
+      },
+      settingsPath: "/groups/raid-server/dashboard/discord-integration",
+    },
+    {
+      name: "unsafe explicit URL falling back to the slug",
+      response: {
+        linked: true,
+        data: { discord_settings_url: "javascript:alert(1)", group_slug: "raid-server" },
+      },
+      settingsPath: "/groups/raid-server/dashboard/discord-integration",
+    },
+  ])(
+    "links a Discord guild and uses $name for Bot Settings",
+    async ({ response: linkResponse, settingsPath }) => {
+      const deferReply = createAsyncRecorder();
+      const editReply = createAsyncRecorder();
+      const calls: FetchCall[] = [];
+      const context = createContext(createRecordingJsonFetcher(linkResponse, calls));
 
-  it("links a Discord guild without an icon to FullParty", async () => {
+      await linkCommand.execute(
+        {
+          appPermissions: {
+            bitfield: 123456n,
+          },
+          deferReply: deferReply.fn,
+          editReply: editReply.fn,
+          guild: {
+            iconURL: () => "https://cdn.discordapp.com/icons/server.png",
+            name: "Raid Server",
+          },
+          guildId: "1379217636696789022",
+          inGuild: () => true,
+          memberPermissions: new PermissionsBitField(PermissionFlagsBits.ManageGuild),
+          options: {
+            getString: () => " ABCD1234-EFGH5678 ",
+          },
+          user: {
+            id: "123456789012345678",
+          },
+        } as unknown as ChatInputCommandInteraction,
+        context,
+      );
+
+      expect(deferReply.calls).toEqual([[{ flags: MessageFlags.Ephemeral }]]);
+      expect(editReply.calls).toMatchObject([
+        [
+          {
+            content: "Validating code ABCD1234-EFGH5678 with the FullParty server...",
+          },
+        ],
+        [
+          {
+            content: null,
+            embeds: [],
+            flags: MessageFlags.IsComponentsV2,
+            allowedMentions: { parse: [], repliedUser: false },
+          },
+        ],
+      ]);
+      expect(JSON.stringify(editReply.calls[1])).toContain(
+        `"url":"http://fullparty.test${settingsPath}"`,
+      );
+      expect(JSON.stringify(editReply.calls[1])).toContain('"label":"Bot Settings"');
+      expect(JSON.stringify(editReply.calls[1])).not.toContain("javascript:");
+      expect(calls).toHaveLength(1);
+      expect(fetchInputToUrl(calls[0]?.input)).toBe(
+        "http://fullparty.test/api/integrations/v1/bot/discord-guilds/link",
+      );
+      expect(parseJsonRequestBody(calls[0])).toEqual({
+        discord_guild_id: "1379217636696789022",
+        icon_url: "https://cdn.discordapp.com/icons/server.png",
+        name: "Raid Server",
+        permissions: "123456",
+        token: "ABCD1234-EFGH5678",
+      });
+      expect(context.payloads.get()).toMatchObject({
+        payload: {
+          command: "link",
+          discord_guild_id: "1379217636696789022",
+          ok: true,
+          response: linkResponse,
+          source: "fullparty.api",
+        },
+        source: "FullParty /link API response",
+      });
+    },
+  );
+
+  it("allows an administrator to link a Discord guild without an icon", async () => {
     const deferReply = createAsyncRecorder();
     const editReply = createAsyncRecorder();
     const calls: FetchCall[] = [];
@@ -1789,6 +2270,7 @@ describe("command execution", () => {
         },
         guildId: "1379217636696789022",
         inGuild: () => true,
+        memberPermissions: new PermissionsBitField(PermissionFlagsBits.Administrator),
         options: {
           getString: () => "JHGC7JJQ-TXEOUHAR",
         },
@@ -1800,6 +2282,7 @@ describe("command execution", () => {
     );
 
     expect(deferReply.calls).toEqual([[{ flags: MessageFlags.Ephemeral }]]);
+    expect(JSON.stringify(editReply.calls[1])).not.toContain('"label":"Bot Settings"');
     expect(calls).toHaveLength(1);
     expect(parseJsonRequestBody(calls[0])).toEqual({
       discord_guild_id: "1379217636696789022",
@@ -1810,38 +2293,62 @@ describe("command execution", () => {
     });
   });
 
-  it("explains how to link a user when no DM token is provided", async () => {
-    const deferReply = createAsyncRecorder();
-    const editReply = createAsyncRecorder();
-    const calls: FetchCall[] = [];
-    const context = createContext(createRecordingJsonFetcher({}, calls));
+  it.each([
+    ["https://fullparty.gg", "https://fullparty.gg/auth/discord-app/user/redirect", null],
+    ["https://fullparty.gg/", "https://fullparty.gg/auth/discord-app/user/redirect", ""],
+    [
+      "http://fullparty.test",
+      "http://fullparty.test/auth/discord-app/user/redirect",
+      null,
+    ],
+    [
+      "http://fullparty.test/settings/",
+      "http://fullparty.test/auth/discord-app/user/redirect",
+      "   ",
+    ],
+  ])(
+    "offers automatic account setup from %s when no DM token is provided",
+    async (fullpartyWebBaseUrl, expectedUrl, token) => {
+      const deferReply = createAsyncRecorder();
+      const editReply = createAsyncRecorder();
+      const calls: FetchCall[] = [];
+      const context = createContext(createRecordingJsonFetcher({}, calls));
+      context.fullpartyWebBaseUrl = fullpartyWebBaseUrl;
 
-    await linkCommand.execute(
-      {
-        deferReply: deferReply.fn,
-        editReply: editReply.fn,
-        inGuild: () => false,
-        options: {
-          getString: () => null,
-        },
-        user: {
-          id: "123456789012345678",
-        },
-      } as unknown as ChatInputCommandInteraction,
-      context,
-    );
-
-    expect(deferReply.calls).toEqual([[]]);
-    expect(editReply.calls).toEqual([
-      [
+      await linkCommand.execute(
         {
-          content:
-            "I need a FullParty Discord link token to connect your account.\n\nGo to http://fullparty.test, open your user settings, and generate a Discord link code.\n\nThen come back to this DM and run `/link token:<code>`.",
-        },
-      ],
-    ]);
-    expect(calls).toEqual([]);
-  });
+          deferReply: deferReply.fn,
+          editReply: editReply.fn,
+          inGuild: () => false,
+          options: {
+            getString: () => token,
+          },
+          user: {
+            id: "123456789012345678",
+          },
+        } as unknown as ChatInputCommandInteraction,
+        context,
+      );
+
+      expect(deferReply.calls).toEqual([[]]);
+      expect(editReply.calls).toHaveLength(1);
+      const message = getFirstMessageOptions(editReply);
+      expect(message.content).toBeUndefined();
+      expect(JSON.stringify(message)).toMatch(/sign in/i);
+      expect(JSON.stringify(message)).toMatch(/authori[sz]e/i);
+      expect(JSON.stringify(message)).toContain("/link token:<code>");
+      const serializedMessage = JSON.parse(JSON.stringify(message)) as unknown;
+      expect(serializedMessage).toMatchObject({
+        flags: MessageFlags.IsComponentsV2,
+        allowedMentions: { parse: [], repliedUser: false },
+      });
+      expect(JSON.stringify(serializedMessage)).toContain(`"url":"${expectedUrl}"`);
+      expect(JSON.stringify(serializedMessage)).toContain(
+        '"label":"Finish Discord Setup"',
+      );
+      expect(calls).toEqual([]);
+    },
+  );
 
   it("explains how to link a guild when no guild token is provided", async () => {
     const deferReply = createAsyncRecorder();
@@ -1855,6 +2362,7 @@ describe("command execution", () => {
         editReply: editReply.fn,
         guildId: "1379217636696789022",
         inGuild: () => true,
+        memberPermissions: new PermissionsBitField(PermissionFlagsBits.ManageGuild),
         options: {
           getString: () => "",
         },
@@ -1866,14 +2374,16 @@ describe("command execution", () => {
     );
 
     expect(deferReply.calls).toEqual([[{ flags: MessageFlags.Ephemeral }]]);
-    expect(editReply.calls).toEqual([
+    expect(editReply.calls).toMatchObject([
       [
         {
-          content:
-            "I need a FullParty Discord server link token to connect this server.\n\nGo to http://fullparty.test, create or open the FullParty group you want to connect, then follow the Discord linking process for that group.\n\nOnce FullParty gives you a code, come back to this server and run `/link token:<code>`.",
+          flags: MessageFlags.IsComponentsV2,
+          allowedMentions: { parse: [], repliedUser: false },
         },
       ],
     ]);
+    expect(JSON.stringify(editReply.calls)).toContain("/link token:<code>");
+    expect(JSON.stringify(editReply.calls)).toContain("Generate Link Token");
     expect(calls).toEqual([]);
   });
 
@@ -1960,6 +2470,7 @@ describe("command execution", () => {
         },
         guildId: "1379217636696789022",
         inGuild: () => true,
+        memberPermissions: new PermissionsBitField(PermissionFlagsBits.ManageGuild),
         options: {
           getString: () => "JHGC7JJQ-TXEOUHAR",
         },

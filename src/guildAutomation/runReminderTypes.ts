@@ -66,6 +66,12 @@ const runActivityTypeSchema = z.looseObject({
   name: z.looseObject({ en: z.string().trim().nullish() }).nullish(),
 });
 
+const optionalRunUrlSchema = z
+  .url({ protocol: /^https?$/u })
+  .max(512)
+  .optional()
+  .catch(undefined);
+
 export const guildRunReminderDataSchema = z.looseObject({
   activity_id: z.number().int().positive().optional(),
   activity_title: z.string().trim().min(1).optional(),
@@ -84,6 +90,7 @@ export const guildRunReminderDataSchema = z.looseObject({
     })
     .nullish(),
   run_id: z.number().int().positive(),
+  run_url: optionalRunUrlSchema,
   starts_at: z.string().trim().min(1).optional(),
   type: z.enum(["runs.starting_soon", "runs.starting_now"]),
   unlinked_participants: guildRunParticipantsSchema,
@@ -101,6 +108,7 @@ export const guildRunCompletedDataSchema = z.object({
   group_id: z.number().int().positive().optional().catch(undefined),
   group_slug: z.string().trim().min(1).optional().catch(undefined),
   run_id: z.number().int().positive(),
+  run_url: optionalRunUrlSchema,
   type: z.enum(["runs.completed", "runs.cancelled"]).default("runs.completed"),
 });
 

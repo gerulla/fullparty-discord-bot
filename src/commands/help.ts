@@ -2,10 +2,22 @@ import {
   ApplicationIntegrationType,
   InteractionContextType,
   MessageFlags,
+  PermissionFlagsBits,
   SlashCommandBuilder,
 } from "discord.js";
 
 import type { ChatInputCommand } from "./types.js";
+import { getDiscordAppInstallUrl } from "../fullparty/discordAppInstall.js";
+import { hasGuildBotModeratorAccess } from "./guildCommandAccess.js";
+
+type HelpAudience =
+  | { kind: "dm" }
+  | {
+      kind: "guild";
+      canManageServer: boolean;
+      canModerate: boolean;
+      canManageRoles: boolean;
+    };
 
 export const helpCommand: ChatInputCommand = {
   data: new SlashCommandBuilder()
@@ -21,39 +33,98 @@ export const helpCommand: ChatInputCommand = {
       InteractionContextType.PrivateChannel,
     ),
   async execute(interaction, context) {
-    const isGuild = interaction.inGuild();
+    if (!interaction.inGuild()) {
+      await interaction.reply({
+        content: createHelpMessage(context.fullpartyWebBaseUrl),
+      });
+      return;
+    }
 
-    await interaction.reply({
-      content: createHelpMessage(context.fullpartyWebBaseUrl),
-      ...(isGuild ? { flags: MessageFlags.Ephemeral } : {}),
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const canManageServer = interaction.memberPermissions.has(
+      PermissionFlagsBits.ManageGuild,
+    );
+    const canManageRoles = interaction.memberPermissions.has(
+      PermissionFlagsBits.ManageRoles,
+    );
+    let canModerate = hasGuildBotModeratorAccess(interaction);
+    if (!canModerate && interaction.guildId) {
+      const settings = await context.guildSettings.get(interaction.guildId);
+      canModerate = hasGuildBotModeratorAccess(interaction, settings.botModeratorRoleId);
+    }
+
+    await interaction.editReply({
+      content: createHelpMessage(context.fullpartyWebBaseUrl, {
+        kind: "guild",
+        canManageServer,
+        canModerate,
+        canManageRoles,
+      }),
     });
   },
 };
 
-function createHelpMessage(fullpartyWebBaseUrl: string): string {
+function createHelpMessage(
+  fullpartyWebBaseUrl: string,
+  audience: HelpAudience = { kind: "dm" },
+): string {
+  if (audience.kind === "dm") {
+    return [
+      "**FullParty Help · Direct Messages**",
+      "",
+      "**Account connection**",
+      `Link your Discord account to view your runs and applications. Use \`/link\` or open ${getDiscordAppInstallUrl(fullpartyWebBaseUrl)} and follow the sign-in and authorization steps.`,
+      "",
+      "**DM commands**",
+      "`/link` - Connect your FullParty account with automated setup or a link token.",
+      "`/runs` - View your upcoming runs. Linked account required.",
+      "`/applications` - View your applications. Linked account required.",
+      ...commonCommands,
+    ].join("\n");
+  }
+
+  const adminCommands = [
+    ...(audience.canManageServer
+      ? [
+          "`/link token:<code>` - Link this server using a FullParty group link token.",
+          "`/setup` - Configure channels, roles and nickname sync. Requires Manage Server.",
+        ]
+      : []),
+    ...(audience.canModerate
+      ? [
+          "`/guildruns` - Browse this server's upcoming runs.",
+          "`/postruns` - Post the schedule in the Schedule Channel, or here with `posthere:true`.",
+          "`/assignrunrole run_id:<id>` - Assign run roles from 60 minutes before to 15 minutes after start.",
+          "`/debugassignrunrole run_id:<id>` - Check role eligibility without changing roles.",
+          "`/clearrole role:<role>` - Delete a stuck temporary run role.",
+        ]
+      : []),
+    ...(audience.canManageRoles
+      ? [
+          "`/rolesync give-role-id:<role> to-users-with-role-id:<role>` - Copy role membership while keeping existing roles. Requires Manage Roles.",
+        ]
+      : []),
+  ];
+
   return [
-    "**FullParty Discord Bot Help**",
+    "**FullParty Help · Server**",
     "",
-    "**Connection requirement**",
-    `Most FullParty commands need your Discord account linked first. Open ${fullpartyWebBaseUrl}, go to your user settings, generate a Discord link code, then run \`/link token:<code>\` in Discord.`,
-    "Server setup also needs the Discord server linked from the FullParty group Discord linking flow.",
-    "",
-    "**Commands**",
-    "`/link token:<code>` - Link your account in DMs, or this server using a group link code.",
-    "`/runs` - Your upcoming runs. DM only; linked account required.",
-    "`/applications` - Your applications. DM only; linked account required.",
-    "`/faq` - Explain template roles, moderator access, and configured channels.",
-    "`/info` - Browse resources. `/info name:<name>` searches privately or posts an exact match. All server members.",
-    "`/setup` - Configure server channels, roles, and nickname sync. Requires Manage Server.",
-    "**Server moderation** - These commands require Manage Server or the configured bot moderator role:",
-    "`/guildruns` - Browse this server's upcoming runs.",
-    "`/postruns` - Post the schedule in the Member-Facing Channel, or here with `posthere:true`.",
-    "`/assignrunrole run_id:<id>` - Assign run roles from 60 minutes before to 15 minutes after start.",
-    "`/debugassignrunrole run_id:<id>` - Check role eligibility for any run without changing roles.",
-    "`/clearrole role:<role>` - Delete a stuck temporary run role.",
-    "**Other commands**",
-    "`/rolesync give-role-id:<role> to-users-with-role-id:<role>` - Add a role to members with another role. Requires Manage Roles; keeps existing roles.",
-    "`/ping` - Quick bot responsiveness check.",
-    "`/help` - Show this message.",
+    "**Member commands**",
+    "`/info` - Browse this server's resources. `/info name:<name>` searches privately or posts an exact match. No personal account link required.",
+    ...commonCommands,
+    ...(adminCommands.length
+      ? [
+          "",
+          "**Admin commands**",
+          "Available with your server permissions or configured FullParty bot moderator role:",
+          ...adminCommands,
+        ]
+      : []),
   ].join("\n");
 }
+
+const commonCommands = [
+  "`/faq` - Learn about template roles, moderator access and configured channels.",
+  "`/ping` - Check whether the bot is responsive.",
+  "`/help` - Show commands available to you here.",
+];

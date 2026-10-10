@@ -15,6 +15,7 @@ import type { LatestPayloadStore } from "../payloads/latestPayloadStore.js";
 export type BotContext = {
   adminApiToken?: string | undefined;
   adminStore?: AdminStore | undefined;
+  developmentJsonEnabled?: boolean | undefined;
   failureReporter?: FailureReporter | undefined;
   fullparty: FullpartyApi;
   fullpartyWebBaseUrl: string;
@@ -23,7 +24,9 @@ export type BotContext = {
   guildRunRoles?: GuildRunRoleStore | undefined;
   guildRunReminderQueue?: GuildRunReminderQueue | undefined;
   guildSettings: GuildSettingsStore;
-  guildScheduleStore?: Pick<SqliteGuildScheduleStore, "get"> | undefined;
+  guildScheduleStore?:
+    | Pick<SqliteGuildScheduleStore, "get" | "requestRunDetectionRefresh">
+    | undefined;
   logger: Logger;
   payloadCommandAllowedUserId?: string | undefined;
   payloads: LatestPayloadStore;

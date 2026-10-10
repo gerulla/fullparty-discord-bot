@@ -12,6 +12,7 @@ export async function updateGuildSettingsFromFullparty(
 ): Promise<ActionResult> {
   const current = await options.context.guildSettings.get(data.discord_guild_id);
   const patch = createGuildSettingsPatch(data.settings);
+  if (hasOwn(data, "group_slug")) patch.groupSlug = data.group_slug ?? null;
 
   if (!current.linkedAt) {
     patch.linkedAt = new Date().toISOString();
@@ -54,6 +55,9 @@ function createGuildSettingsPatch(
   setPatchId(settings, patch, "run_announcement_channel_id", "runAnnouncementChannelId");
   setPatchId(settings, patch, "upcoming_raider_role_id", "upcomingRaiderRoleId");
   setPatchId(settings, patch, "schedule_refresh_channel_id", "scheduleRefreshChannelId");
+  if (settings.schedule_mode !== undefined) patch.scheduleMode = settings.schedule_mode;
+  if (settings.schedule_format !== undefined)
+    patch.scheduleFormat = settings.schedule_format;
   if (settings.schedule_refresh_enabled !== undefined)
     patch.scheduleRefreshEnabled = settings.schedule_refresh_enabled;
   if (settings.schedule_refresh_interval_days !== undefined)
@@ -102,6 +106,8 @@ type GuildSettingsPatchIdKey = keyof Omit<
   | "syncDiscordNamesToFf14"
   | "scheduleRefreshEnabled"
   | "scheduleRefreshIntervalDays"
+  | "scheduleMode"
+  | "scheduleFormat"
 >;
 
 function setPatchId(

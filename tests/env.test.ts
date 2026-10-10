@@ -10,6 +10,20 @@ const baseEnv = {
 } satisfies Environment;
 
 describe("parseConfig", () => {
+  it("enables JSON previews only with explicit development opt-in", () => {
+    expect(parseConfig(baseEnv).DEV_JSON_ENABLED).toBe(false);
+    expect(parseConfig({ ...baseEnv, DEV_JSON_ENABLED: "false" }).DEV_JSON_ENABLED).toBe(
+      false,
+    );
+    expect(
+      parseConfig({ ...baseEnv, NODE_ENV: "development", DEV_JSON_ENABLED: "true" })
+        .DEV_JSON_ENABLED,
+    ).toBe(true);
+    for (const NODE_ENV of ["production", "test"])
+      expect(
+        parseConfig({ ...baseEnv, NODE_ENV, DEV_JSON_ENABLED: "true" }).DEV_JSON_ENABLED,
+      ).toBe(false);
+  });
   it("parses the minimal required environment", () => {
     const config = parseConfig(baseEnv);
 
@@ -35,8 +49,8 @@ describe("parseConfig", () => {
       NODE_ENV: "development",
       RUNTIME_LOG_DIRECTORY: "data/runtime-logs",
       RUNTIME_LOG_RETENTION_DAYS: 30,
-      USER_DM_RATE_LIMIT_COUNT: 2,
-      USER_DM_RATE_LIMIT_WINDOW_MS: 300000,
+      USER_DM_RATE_LIMIT_COUNT: 5,
+      USER_DM_RATE_LIMIT_WINDOW_MS: 5000,
     });
   });
 

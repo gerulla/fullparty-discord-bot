@@ -9,6 +9,7 @@ import type { BotContext } from "../bot/context.js";
 import { CommandError } from "../commands/commandError.js";
 import { getCommandMap, getComponentCommand } from "../commands/index.js";
 import type { ChatInputCommand, SetupComponentInteraction } from "../commands/types.js";
+import { createAccountLinkRequiredMessage } from "../discord/linkMessages.js";
 import { FullpartyApiError } from "../fullparty/client.js";
 import {
   isAutomationFailureDetailsCustomId,
@@ -18,6 +19,7 @@ import { isExpectedDiscordFailure } from "../health/errorReporter.js";
 import { recordFailureSafely, serializeFailureError } from "../health/failureReporter.js";
 import { bestEffort } from "../lib/bestEffort.js";
 import { getDiscordApiErrorCode } from "../lib/errors.js";
+import { jsonPreviewCustomIdPrefix } from "../dev/jsonPreview.js";
 
 export function createInteractionHandler(
   context: BotContext,
@@ -28,6 +30,23 @@ export function createInteractionHandler(
   return async (interaction: Interaction) => {
     if (interaction.isChatInputCommand()) {
       await handleChatInputCommand(interaction, context, commandMap);
+      return;
+    }
+
+    if (
+      ((typeof interaction.isButton === "function" && interaction.isButton()) ||
+        (typeof interaction.isAnySelectMenu === "function" &&
+          interaction.isAnySelectMenu())) &&
+      interaction.customId.startsWith(jsonPreviewCustomIdPrefix)
+    ) {
+      await interaction.reply({
+        content:
+          context.developmentJsonEnabled &&
+          interaction.user.id === context.payloadCommandAllowedUserId
+            ? "This is a JSON preview. The control does not perform a bot action."
+            : "That preview control is not available.",
+        flags: MessageFlags.Ephemeral,
+      });
       return;
     }
 
@@ -139,7 +158,6 @@ async function handleComponentInteraction(
 ): Promise<void> {
   const startedAt = Date.now();
   const command = getComponentCommand(interaction.customId, availableCommands);
-
   if (!command?.handleComponent) {
     context.logger.warn("Received an unknown component interaction.", {
       customId: interaction.customId,
@@ -204,7 +222,7 @@ async function replyWithError(
   if (getDiscordApiErrorCode(error) === "10062") return;
 
   try {
-    await sendErrorReply(interaction, error, context.fullpartyWebBaseUrl);
+    await sendErrorReply(interaction, error);
   } catch (replyError) {
     if (getDiscordApiErrorCode(replyError) !== "10062") throw replyError;
 
@@ -239,45 +257,44 @@ function getInteractionDiagnostics(
 async function sendErrorReply(
   interaction: ChatInputCommandInteraction | SetupComponentInteraction,
   error: unknown,
-  fullpartyWebBaseUrl: string,
 ): Promise<void> {
-  const content =
+  const message =
     error instanceof CommandError
-      ? error.publicMessage
+      ? { content: error.publicMessage }
       : isUnlinkedDiscordUserError(error)
-        ? createLinkedUserRequiredMessage(fullpartyWebBaseUrl)
-        : "Something went wrong while running that command.";
+        ? createLinkedUserRequiredMessage()
+        : { content: "Something went wrong while running that command." };
+  const flags = MessageFlags.Ephemeral | ("flags" in message ? message.flags : 0);
 
   if (interaction.deferred && "customId" in interaction) {
-    await interaction.followUp({ content, flags: MessageFlags.Ephemeral });
+    await interaction.followUp({ ...message, flags });
     return;
   }
 
   if (interaction.deferred) {
-    await interaction.editReply({ content });
+    await interaction.editReply({
+      ...message,
+      ...("flags" in message ? { content: null, embeds: [] } : {}),
+    });
     return;
   }
 
   if (interaction.replied) {
     await interaction.followUp({
-      content,
-      flags: MessageFlags.Ephemeral,
+      ...message,
+      flags,
     });
     return;
   }
 
   await interaction.reply({
-    content,
-    flags: MessageFlags.Ephemeral,
+    ...message,
+    flags,
   });
 }
 
-function createLinkedUserRequiredMessage(fullpartyWebBaseUrl: string): string {
-  return [
-    "Your Discord account is not linked to FullParty yet.",
-    `Open ${fullpartyWebBaseUrl}, go to your user settings, and generate a Discord link code.`,
-    "Then come back here and run `/link token:<code>` to connect your account.",
-  ].join("\n\n");
+function createLinkedUserRequiredMessage() {
+  return createAccountLinkRequiredMessage();
 }
 
 function isUnlinkedDiscordUserError(error: unknown): boolean {

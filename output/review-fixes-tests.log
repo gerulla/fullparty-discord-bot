@@ -1,0 +1,267 @@
+
+> fullparty-discord-bot@0.1.0 pretest
+> npm run admin:build:server
+
+
+> fullparty-discord-bot@0.1.0 admin:build:server
+> npm run build:server --workspace @fullparty/admin
+
+
+> @fullparty/admin@0.1.0 build:server
+> tsc -p tsconfig.server.json
+
+
+> fullparty-discord-bot@0.1.0 test
+> vitest run && npm run test --workspace @fullparty/admin
+
+
+ RUN  v4.1.11 D:/fullparty-discord-bot
+
+(node:54752) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:9524) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:51444) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:27244) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:20512) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:20724) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3748) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:13444) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:52712) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:23328) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:48164) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:9012) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:54036) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:10464) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:30440) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:48956) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:17604) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:14020) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:43564) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:5848) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:20376) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:21808) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:39636) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:10324) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:55080) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:23880) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:27080) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:16616) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:21436) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_participant_sync (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.admin.report (POST /events).
+(node:38892) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_completed; data type: runs.completed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.runs_changed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_completed; data type: runs.completed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_participant_sync (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.admin.report (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_participant_sync (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_participant_sync (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: integration.healthcheck (GET /events).
+[FullParty Bot] Event rejected from 127.0.0.1: missing_signature (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.admin.report (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_participant_sync (POST /events).
+[FullParty Bot] Event rejected from 127.0.0.1: invalid_signature (POST /events).
+[FullParty Bot] Event rejected from 127.0.0.1: stale_signature (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.user_app.installed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_completed; data type: runs.completed (POST /events).
+[FullParty Bot] Event rejected from 127.0.0.1: missing_signature (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_completed; data type: runs.completed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.user_app.installed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_participant_sync (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.user_app.installed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.user_app.disconnected (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: user.discord_login (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_participant_sync (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.runs_changed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_completed; data type: runs.completed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.admin.report (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_participant_sync (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_completed; data type: runs.completed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_participant_sync (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.runs_changed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_completed; data type: runs.completed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_participant_sync (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_completed; data type: runs.completed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.user_app.installed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.user_app.disconnected (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: user.discord_login (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.user_app.installed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_participant_sync (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.user_app.disconnected (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: user.discord_login (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.user_app.installed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.user_app.disconnected (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: user.discord_login (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.admin.report (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.user_app.installed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.user_app.disconnected (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: user.discord_login (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.runs_changed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: user.discord_login (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_participant_sync (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_cancelled; data type: runs.cancelled (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: user.discord_login (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_cancelled; data type: runs.cancelled (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: user.discord_login (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: user.discord_login (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.admin.report (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: user.discord_login (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: user.discord_login (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_participant_sync (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: user.discord_login (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_participant_sync (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: user.discord_login (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: user.discord_login (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: user.discord_login (POST /events).
+[FullParty Bot] Event rejected from 127.0.0.1: missing_signature (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: user.discord_login (POST /events).
+[FullParty Bot] Event rejected from 127.0.0.1: missing_signature (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_participant_sync (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_cancelled; data type: runs.cancelled (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.runs_changed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_participant_sync (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.notification.delivery; data type: user.discord_login (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_cancelled; data type: runs.cancelled (POST /events).
+[FullParty Bot] Event rejected from 127.0.0.1: invalid_signature (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_participant_sync (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.admin.report (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.runs_changed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_participant_sync (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_cancelled; data type: runs.cancelled (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.admin.report (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_cancelled; data type: runs.cancelled (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_participant_sync (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.admin.report (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.runs_changed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_participant_sync (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_cancelled; data type: runs.cancelled (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.notification.delivery; data type: assignments.assigned (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.admin.report (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.notification.delivery; data type: assignments.assigned (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_cancelled; data type: runs.cancelled (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.notification.delivery; data type: assignments.designation_assigned (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_participant_sync (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.notification.delivery; data type: assignments.designation_removed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.notification.delivery; data type: assignments.designation_assigned (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.notification.delivery; data type: assignments.designation_removed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.admin.report (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.notification.delivery; data type: assignments.designation_assigned (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_participant_sync (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.runs_changed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.notification.delivery; data type: assignments.designation_removed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.notification.delivery; data type: assignments.designation_assigned (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.notification.delivery; data type: assignments.designation_removed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.admin.report (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_completed; data type: runs.completed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_participant_sync (POST /events).
+[FullParty Bot] Event rejected from 127.0.0.1: missing_signature (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.notification.delivery; data type: assignments.designation_assigned (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.notification.delivery; data type: assignments.designation_assigned (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.admin.report (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_participant_sync (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.runs_changed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.admin.report (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_participant_sync (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_completed; data type: runs.completed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.admin.report (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_participant_sync (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.runs_changed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.admin.report (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_participant_sync (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.admin.report (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_participant_sync (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.settings_updated (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.settings_updated (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.notification.delivery; data type: assignments.assigned (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.admin.report (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.settings_updated (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_participant_sync (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.admin.report (POST /events).
+[FullParty Bot] Event rejected from 127.0.0.1: missing_signature (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.admin.report (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.settings_updated (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.settings_updated (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.settings_updated (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_completed; data type: runs.completed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.notification.delivery; data type: assignments.assigned (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.settings_updated (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_completed; data type: runs.completed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.admin.report (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.admin.report (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_completed; data type: runs.completed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_reminder; data type: runs.starting_soon (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_reminder; data type: runs.starting_soon (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_reminder; data type: runs.starting_soon (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_completed; data type: runs.completed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.admin.report (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_completed; data type: runs.completed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_completed; data type: runs.completed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.admin.report (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_reminder; data type: runs.starting_soon (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_reminder; data type: runs.starting_now (POST /events).
+(node:13536) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_reminder; data type: runs.starting_soon (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_completed; data type: runs.completed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_cancelled; data type: runs.cancelled (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_completed; data type: runs.starting_soon (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.run_reminder; data type: runs.starting_soon (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.snapshot_requested (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.membership_snapshot_requested (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.membership_snapshot_requested (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.settings_updated (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.guild.disconnected (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: unknown (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.user_app.installed (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.admin.report (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.admin.report (POST /events).
+[FullParty Bot] Event received from 127.0.0.1: discord.admin.report (POST /events).
+
+ Test Files  53 passed (53)
+      Tests  873 passed (873)
+   Start at  20:23:51
+   Duration  4.23s (transform 9.52s, setup 0ms, import 75.64s, tests 10.44s, environment 5ms)
+
+
+> @fullparty/admin@0.1.0 test
+> vitest run --config vitest.config.ts
+
+
+ RUN  v4.1.11 D:/fullparty-discord-bot/admin
+
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  20:23:56
+   Duration  296ms (transform 40ms, setup 0ms, import 123ms, tests 27ms, environment 0ms)
+

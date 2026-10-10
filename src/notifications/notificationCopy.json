@@ -6,6 +6,12 @@
     "tone": "info"
   },
   "types": {
+    "user.discord_login": {
+      "title": "Welcome to FullParty",
+      "description": "You've signed in with Discord. Finish connecting the FullParty app to receive run updates, reminders and application notifications here.\n\n1. Select **Finish Discord setup** below.\n2. Follow the Discord prompts to authorize FullParty for your account.\n3. Return to FullParty to finish the setup.\n\nOnce connected, use `/runs` to see your upcoming runs and `/applications` to check your applications.",
+      "actionLabel": "Finish Discord setup",
+      "tone": "info"
+    },
     "user.social_account.linked": {
       "title": "Social account linked",
       "description": "A social account was linked to your FullParty account.",

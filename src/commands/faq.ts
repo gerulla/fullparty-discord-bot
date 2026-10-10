@@ -43,7 +43,8 @@ export function createFaqMessage(): string {
     "The Bot Moderator Role lets trusted server staff use operational bot commands without giving them Manage Server.",
     "Manage Server is still required to change `/setup` settings. The moderator role is for actions like clearing a stuck temporary run role with `/clearrole`.",
     "",
-    "**Member-Facing Channel**",
-    "This is the server channel FullParty can use for member-visible run messages later. Bot-log messages still go to the separate bot-log channel.",
+    "**Schedule Channel**",
+    "This channel is used by `/postruns` and automatic schedules. Use `posthere:true` to post a manual schedule in another channel. Bot logs use the bot-log channel.",
+    "In `/setup` → Schedule Settings, choose Disabled, Timed Refresh (every 1–7 days), or Run Detection (refresh when FullParty reports added or removed runs). Both automatic modes replace the previous automatic post; manual posts are kept.",
   ].join("\n");
 }

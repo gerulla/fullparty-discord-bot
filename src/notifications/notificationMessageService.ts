@@ -5,12 +5,15 @@ import {
   type APIEmbedField,
   type MessageCreateOptions,
 } from "discord.js";
+import { createDiscordLoginMessage, discordLoginEvent } from "../dm/discordLogin.js";
+import { isRecord } from "../lib/valueReaders.js";
 
 import {
   getNotificationCopy,
   getSupportedNotificationTypes,
 } from "./notificationCopyCatalog.js";
 import { formatNotificationCopy } from "./notificationFormatters.js";
+import { buildV2NotificationMessage } from "./v2NotificationMessage.js";
 import {
   humanizeIdentifier,
   resolveFullpartyActionUrl,
@@ -46,6 +49,18 @@ export class NotificationMessageService {
   public constructor(private readonly options: NotificationMessageServiceOptions) {}
 
   public createDmMessage(data: NotificationDeliveryData): MessageCreateOptions {
+    if (data.notification.type === discordLoginEvent) {
+      return createDiscordLoginMessage(
+        data.notification.action_url,
+        this.options.fullpartyWebBaseUrl,
+        isRecord(data.notification.payload)
+          ? data.notification.payload.account_settings_url
+          : undefined,
+      );
+    }
+    const v2 = buildV2NotificationMessage(data.notification.type, data, this.options);
+    if (v2) return v2;
+
     const copy = formatNotificationCopy(
       data,
       getNotificationCopy(data.notification.type),

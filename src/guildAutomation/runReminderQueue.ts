@@ -38,6 +38,7 @@ export type GuildRunReminderQueueOptions = {
   failureReporter?: FailureReporter | undefined;
   logger: Logger;
   maxAttempts?: number;
+  onFirstAttempt?: (data: GuildAutomationJobData) => Promise<void>;
   pollIntervalMs?: number;
   processor: (data: GuildAutomationJobData) => Promise<Record<string, unknown>>;
 };
@@ -91,6 +92,7 @@ export class SqliteGuildRunReminderQueue implements GuildRunReminderQueue {
   private readonly failureReporter: FailureReporter | undefined;
   private readonly logger: Logger;
   private readonly maxAttempts: number;
+  private readonly onFirstAttempt: GuildRunReminderQueueOptions["onFirstAttempt"];
   private readonly pollIntervalMs: number;
   private readonly processor: (
     data: GuildAutomationJobData,
@@ -106,6 +108,7 @@ export class SqliteGuildRunReminderQueue implements GuildRunReminderQueue {
     this.failureReporter = options.failureReporter;
     this.logger = options.logger;
     this.maxAttempts = Math.max(1, Math.floor(options.maxAttempts ?? 3));
+    this.onFirstAttempt = options.onFirstAttempt;
     this.pollIntervalMs = Math.max(250, Math.floor(options.pollIntervalMs ?? 1000));
     this.processor = options.processor;
   }
@@ -356,6 +359,10 @@ export class SqliteGuildRunReminderQueue implements GuildRunReminderQueue {
 
   private async processJob(job: GuildRunReminderQueueJob): Promise<void> {
     try {
+      if (job.attempts === 1) {
+        await this.onFirstAttempt?.(job.data);
+      }
+
       const result = await this.processor(job.data);
       const now = new Date().toISOString();
 

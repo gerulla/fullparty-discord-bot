@@ -1,0 +1,1287 @@
+{
+  "archived_at": "2026-10-10T13:24:03.856Z",
+  "disconnected_event": {
+    "disconnected_at": "2026-10-10T13:24:03+00:00",
+    "discord_guild_id": "1379217636696789022",
+    "group_id": 1,
+    "group_slug": "ftel"
+  },
+  "discord_guild_id": "1379217636696789022",
+  "group_id": 1,
+  "group_name": null,
+  "group_slug": "ftel",
+  "local_data": {
+    "live_guild_snapshot": {
+      "available_options": {
+        "bot_log_channels": [
+          {
+            "disabled_reason": "Bot cannot send messages in this channel.",
+            "id": "1507732018832871434",
+            "label": "announcements",
+            "sendable_by_bot": false,
+            "type": 5,
+            "type_name": "GuildNews",
+            "usable": false,
+            "viewable_by_bot": true
+          },
+          {
+            "disabled_reason": null,
+            "id": "1379217637841567756",
+            "label": "general",
+            "sendable_by_bot": true,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": true,
+            "viewable_by_bot": true
+          },
+          {
+            "disabled_reason": "Bot cannot view this channel.",
+            "id": "1379217752753180868",
+            "label": "moderator-only",
+            "sendable_by_bot": true,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": false,
+            "viewable_by_bot": false
+          },
+          {
+            "disabled_reason": null,
+            "id": "1510026908048425030",
+            "label": "bottestinggrounds",
+            "sendable_by_bot": true,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": true,
+            "viewable_by_bot": true
+          },
+          {
+            "disabled_reason": null,
+            "id": "1502845096348094496",
+            "label": "issues",
+            "sendable_by_bot": true,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": true,
+            "viewable_by_bot": true
+          },
+          {
+            "disabled_reason": "Bot cannot send messages in this channel.",
+            "id": "1379217752753180865",
+            "label": "rules",
+            "sendable_by_bot": false,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": false,
+            "viewable_by_bot": true
+          },
+          {
+            "disabled_reason": "Bot cannot send messages in this channel.",
+            "id": "1515462639050821772",
+            "label": "roles",
+            "sendable_by_bot": false,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": false,
+            "viewable_by_bot": true
+          },
+          {
+            "disabled_reason": "Bot cannot view this channel.",
+            "id": "1511128688287154277",
+            "label": "todo",
+            "sendable_by_bot": true,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": false,
+            "viewable_by_bot": false
+          },
+          {
+            "disabled_reason": null,
+            "id": "1502845065158987826",
+            "label": "website-feedback",
+            "sendable_by_bot": true,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": true,
+            "viewable_by_bot": true
+          },
+          {
+            "disabled_reason": "Bot cannot send messages in this channel.",
+            "id": "1507732064797986916",
+            "label": "changelog",
+            "sendable_by_bot": false,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": false,
+            "viewable_by_bot": true
+          },
+          {
+            "disabled_reason": null,
+            "id": "1507857881008046294",
+            "label": "discord-bot-discussion",
+            "sendable_by_bot": true,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": true,
+            "viewable_by_bot": true
+          },
+          {
+            "disabled_reason": null,
+            "id": "1525647753705689218",
+            "label": "dalamud-plugin-discussion",
+            "sendable_by_bot": true,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": true,
+            "viewable_by_bot": true
+          }
+        ],
+        "bot_moderator_roles": [
+          {
+            "color": 16777215,
+            "colors": {
+              "primary_color": 16777215,
+              "primary_hex": "#FFFFFF",
+              "secondary_color": null,
+              "secondary_hex": null,
+              "tertiary_color": null,
+              "tertiary_hex": null
+            },
+            "disabled_reason": "Role is managed by Discord or another integration.",
+            "id": "1511085468979167315",
+            "label": "Fullparty-Dev",
+            "managed": true,
+            "position": 7,
+            "usable": false
+          },
+          {
+            "color": 16777215,
+            "colors": {
+              "primary_color": 16777215,
+              "primary_hex": "#FFFFFF",
+              "secondary_color": null,
+              "secondary_hex": null,
+              "tertiary_color": null,
+              "tertiary_hex": null
+            },
+            "disabled_reason": "Role is managed by Discord or another integration.",
+            "id": "1509966575548235796",
+            "label": "FullParty",
+            "managed": true,
+            "position": 6,
+            "usable": false
+          },
+          {
+            "color": 15277667,
+            "colors": {
+              "primary_color": 15277667,
+              "primary_hex": "#E91E63",
+              "secondary_color": null,
+              "secondary_hex": null,
+              "tertiary_color": null,
+              "tertiary_hex": null
+            },
+            "disabled_reason": null,
+            "id": "1510027172193243267",
+            "label": "qteasas",
+            "managed": false,
+            "position": 5,
+            "usable": true
+          },
+          {
+            "color": 16777215,
+            "colors": {
+              "primary_color": 16777215,
+              "primary_hex": "#FFFFFF",
+              "secondary_color": null,
+              "secondary_hex": null,
+              "tertiary_color": null,
+              "tertiary_hex": null
+            },
+            "disabled_reason": "Role is managed by Discord or another integration.",
+            "id": "1515461826115014750",
+            "label": "AutoRole",
+            "managed": true,
+            "position": 4,
+            "usable": false
+          },
+          {
+            "color": 16777215,
+            "colors": {
+              "primary_color": 16777215,
+              "primary_hex": "#FFFFFF",
+              "secondary_color": null,
+              "secondary_hex": null,
+              "tertiary_color": null,
+              "tertiary_hex": null
+            },
+            "disabled_reason": null,
+            "id": "1515461944553771199",
+            "label": "release",
+            "managed": false,
+            "position": 3,
+            "usable": true
+          },
+          {
+            "color": 16777215,
+            "colors": {
+              "primary_color": 16777215,
+              "primary_hex": "#FFFFFF",
+              "secondary_color": null,
+              "secondary_hex": null,
+              "tertiary_color": null,
+              "tertiary_hex": null
+            },
+            "disabled_reason": null,
+            "id": "1515462060480135300",
+            "label": "questionable",
+            "managed": false,
+            "position": 2,
+            "usable": true
+          },
+          {
+            "color": 16777215,
+            "colors": {
+              "primary_color": 16777215,
+              "primary_hex": "#FFFFFF",
+              "secondary_color": null,
+              "secondary_hex": null,
+              "tertiary_color": null,
+              "tertiary_hex": null
+            },
+            "disabled_reason": null,
+            "id": "1536175132018479205",
+            "label": "plogon-release",
+            "managed": false,
+            "position": 1,
+            "usable": true
+          }
+        ],
+        "channels": [
+          {
+            "disabled_reason": null,
+            "id": "1507732018832871434",
+            "label": "announcements",
+            "sendable_by_bot": false,
+            "type": 5,
+            "type_name": "GuildNews",
+            "usable": true,
+            "viewable_by_bot": true
+          },
+          {
+            "disabled_reason": null,
+            "id": "1379217637841567756",
+            "label": "general",
+            "sendable_by_bot": true,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": true,
+            "viewable_by_bot": true
+          },
+          {
+            "disabled_reason": null,
+            "id": "1379217637841567757",
+            "label": "General",
+            "sendable_by_bot": true,
+            "type": 2,
+            "type_name": "GuildVoice",
+            "usable": true,
+            "viewable_by_bot": true
+          },
+          {
+            "disabled_reason": "Bot cannot view this channel.",
+            "id": "1379217752753180868",
+            "label": "moderator-only",
+            "sendable_by_bot": true,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": false,
+            "viewable_by_bot": false
+          },
+          {
+            "disabled_reason": null,
+            "id": "1379217637841567754",
+            "label": "Text channels",
+            "sendable_by_bot": false,
+            "type": 4,
+            "type_name": "GuildCategory",
+            "usable": true,
+            "viewable_by_bot": true
+          },
+          {
+            "disabled_reason": null,
+            "id": "1510026908048425030",
+            "label": "bottestinggrounds",
+            "sendable_by_bot": true,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": true,
+            "viewable_by_bot": true
+          },
+          {
+            "disabled_reason": null,
+            "id": "1502845096348094496",
+            "label": "issues",
+            "sendable_by_bot": true,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": true,
+            "viewable_by_bot": true
+          },
+          {
+            "disabled_reason": null,
+            "id": "1379217752753180865",
+            "label": "rules",
+            "sendable_by_bot": false,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": true,
+            "viewable_by_bot": true
+          },
+          {
+            "disabled_reason": null,
+            "id": "1379217637841567755",
+            "label": "Voice channels",
+            "sendable_by_bot": false,
+            "type": 4,
+            "type_name": "GuildCategory",
+            "usable": true,
+            "viewable_by_bot": true
+          },
+          {
+            "disabled_reason": null,
+            "id": "1515462728754528426",
+            "label": "dev",
+            "sendable_by_bot": false,
+            "type": 4,
+            "type_name": "GuildCategory",
+            "usable": true,
+            "viewable_by_bot": true
+          },
+          {
+            "disabled_reason": null,
+            "id": "1515462639050821772",
+            "label": "roles",
+            "sendable_by_bot": false,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": true,
+            "viewable_by_bot": true
+          },
+          {
+            "disabled_reason": "Bot cannot view this channel.",
+            "id": "1511128688287154277",
+            "label": "todo",
+            "sendable_by_bot": true,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": false,
+            "viewable_by_bot": false
+          },
+          {
+            "disabled_reason": null,
+            "id": "1502845065158987826",
+            "label": "website-feedback",
+            "sendable_by_bot": true,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": true,
+            "viewable_by_bot": true
+          },
+          {
+            "disabled_reason": null,
+            "id": "1507732064797986916",
+            "label": "changelog",
+            "sendable_by_bot": false,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": true,
+            "viewable_by_bot": true
+          },
+          {
+            "disabled_reason": null,
+            "id": "1507857881008046294",
+            "label": "discord-bot-discussion",
+            "sendable_by_bot": true,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": true,
+            "viewable_by_bot": true
+          },
+          {
+            "disabled_reason": null,
+            "id": "1525647753705689218",
+            "label": "dalamud-plugin-discussion",
+            "sendable_by_bot": true,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": true,
+            "viewable_by_bot": true
+          }
+        ],
+        "roles": [
+          {
+            "color": 16777215,
+            "colors": {
+              "primary_color": 16777215,
+              "primary_hex": "#FFFFFF",
+              "secondary_color": null,
+              "secondary_hex": null,
+              "tertiary_color": null,
+              "tertiary_hex": null
+            },
+            "disabled_reason": "Role is managed by Discord or another integration.",
+            "id": "1511085468979167315",
+            "label": "Fullparty-Dev",
+            "managed": true,
+            "position": 7,
+            "usable": false
+          },
+          {
+            "color": 16777215,
+            "colors": {
+              "primary_color": 16777215,
+              "primary_hex": "#FFFFFF",
+              "secondary_color": null,
+              "secondary_hex": null,
+              "tertiary_color": null,
+              "tertiary_hex": null
+            },
+            "disabled_reason": "Role is managed by Discord or another integration.",
+            "id": "1509966575548235796",
+            "label": "FullParty",
+            "managed": true,
+            "position": 6,
+            "usable": false
+          },
+          {
+            "color": 15277667,
+            "colors": {
+              "primary_color": 15277667,
+              "primary_hex": "#E91E63",
+              "secondary_color": null,
+              "secondary_hex": null,
+              "tertiary_color": null,
+              "tertiary_hex": null
+            },
+            "disabled_reason": null,
+            "id": "1510027172193243267",
+            "label": "qteasas",
+            "managed": false,
+            "position": 5,
+            "usable": true
+          },
+          {
+            "color": 16777215,
+            "colors": {
+              "primary_color": 16777215,
+              "primary_hex": "#FFFFFF",
+              "secondary_color": null,
+              "secondary_hex": null,
+              "tertiary_color": null,
+              "tertiary_hex": null
+            },
+            "disabled_reason": "Role is managed by Discord or another integration.",
+            "id": "1515461826115014750",
+            "label": "AutoRole",
+            "managed": true,
+            "position": 4,
+            "usable": false
+          },
+          {
+            "color": 16777215,
+            "colors": {
+              "primary_color": 16777215,
+              "primary_hex": "#FFFFFF",
+              "secondary_color": null,
+              "secondary_hex": null,
+              "tertiary_color": null,
+              "tertiary_hex": null
+            },
+            "disabled_reason": null,
+            "id": "1515461944553771199",
+            "label": "release",
+            "managed": false,
+            "position": 3,
+            "usable": true
+          },
+          {
+            "color": 16777215,
+            "colors": {
+              "primary_color": 16777215,
+              "primary_hex": "#FFFFFF",
+              "secondary_color": null,
+              "secondary_hex": null,
+              "tertiary_color": null,
+              "tertiary_hex": null
+            },
+            "disabled_reason": null,
+            "id": "1515462060480135300",
+            "label": "questionable",
+            "managed": false,
+            "position": 2,
+            "usable": true
+          },
+          {
+            "color": 16777215,
+            "colors": {
+              "primary_color": 16777215,
+              "primary_hex": "#FFFFFF",
+              "secondary_color": null,
+              "secondary_hex": null,
+              "tertiary_color": null,
+              "tertiary_hex": null
+            },
+            "disabled_reason": null,
+            "id": "1536175132018479205",
+            "label": "plogon-release",
+            "managed": false,
+            "position": 1,
+            "usable": true
+          }
+        ],
+        "run_announcement_channels": [
+          {
+            "disabled_reason": "Bot cannot send messages in this channel.",
+            "id": "1507732018832871434",
+            "label": "announcements",
+            "sendable_by_bot": false,
+            "type": 5,
+            "type_name": "GuildNews",
+            "usable": false,
+            "viewable_by_bot": true
+          },
+          {
+            "disabled_reason": null,
+            "id": "1379217637841567756",
+            "label": "general",
+            "sendable_by_bot": true,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": true,
+            "viewable_by_bot": true
+          },
+          {
+            "disabled_reason": "Bot cannot view this channel.",
+            "id": "1379217752753180868",
+            "label": "moderator-only",
+            "sendable_by_bot": true,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": false,
+            "viewable_by_bot": false
+          },
+          {
+            "disabled_reason": null,
+            "id": "1510026908048425030",
+            "label": "bottestinggrounds",
+            "sendable_by_bot": true,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": true,
+            "viewable_by_bot": true
+          },
+          {
+            "disabled_reason": null,
+            "id": "1502845096348094496",
+            "label": "issues",
+            "sendable_by_bot": true,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": true,
+            "viewable_by_bot": true
+          },
+          {
+            "disabled_reason": "Bot cannot send messages in this channel.",
+            "id": "1379217752753180865",
+            "label": "rules",
+            "sendable_by_bot": false,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": false,
+            "viewable_by_bot": true
+          },
+          {
+            "disabled_reason": "Bot cannot send messages in this channel.",
+            "id": "1515462639050821772",
+            "label": "roles",
+            "sendable_by_bot": false,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": false,
+            "viewable_by_bot": true
+          },
+          {
+            "disabled_reason": "Bot cannot view this channel.",
+            "id": "1511128688287154277",
+            "label": "todo",
+            "sendable_by_bot": true,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": false,
+            "viewable_by_bot": false
+          },
+          {
+            "disabled_reason": null,
+            "id": "1502845065158987826",
+            "label": "website-feedback",
+            "sendable_by_bot": true,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": true,
+            "viewable_by_bot": true
+          },
+          {
+            "disabled_reason": "Bot cannot send messages in this channel.",
+            "id": "1507732064797986916",
+            "label": "changelog",
+            "sendable_by_bot": false,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": false,
+            "viewable_by_bot": true
+          },
+          {
+            "disabled_reason": null,
+            "id": "1507857881008046294",
+            "label": "discord-bot-discussion",
+            "sendable_by_bot": true,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": true,
+            "viewable_by_bot": true
+          },
+          {
+            "disabled_reason": null,
+            "id": "1525647753705689218",
+            "label": "dalamud-plugin-discussion",
+            "sendable_by_bot": true,
+            "type": 0,
+            "type_name": "GuildText",
+            "usable": true,
+            "viewable_by_bot": true
+          }
+        ],
+        "run_role_template_roles": [
+          {
+            "color": 16777215,
+            "colors": {
+              "primary_color": 16777215,
+              "primary_hex": "#FFFFFF",
+              "secondary_color": null,
+              "secondary_hex": null,
+              "tertiary_color": null,
+              "tertiary_hex": null
+            },
+            "disabled_reason": "Role is managed by Discord or another integration.",
+            "id": "1511085468979167315",
+            "label": "Fullparty-Dev",
+            "managed": true,
+            "position": 7,
+            "usable": false
+          },
+          {
+            "color": 16777215,
+            "colors": {
+              "primary_color": 16777215,
+              "primary_hex": "#FFFFFF",
+              "secondary_color": null,
+              "secondary_hex": null,
+              "tertiary_color": null,
+              "tertiary_hex": null
+            },
+            "disabled_reason": "Role is managed by Discord or another integration.",
+            "id": "1509966575548235796",
+            "label": "FullParty",
+            "managed": true,
+            "position": 6,
+            "usable": false
+          },
+          {
+            "color": 15277667,
+            "colors": {
+              "primary_color": 15277667,
+              "primary_hex": "#E91E63",
+              "secondary_color": null,
+              "secondary_hex": null,
+              "tertiary_color": null,
+              "tertiary_hex": null
+            },
+            "disabled_reason": null,
+            "id": "1510027172193243267",
+            "label": "qteasas",
+            "managed": false,
+            "position": 5,
+            "usable": true
+          },
+          {
+            "color": 16777215,
+            "colors": {
+              "primary_color": 16777215,
+              "primary_hex": "#FFFFFF",
+              "secondary_color": null,
+              "secondary_hex": null,
+              "tertiary_color": null,
+              "tertiary_hex": null
+            },
+            "disabled_reason": "Role is managed by Discord or another integration.",
+            "id": "1515461826115014750",
+            "label": "AutoRole",
+            "managed": true,
+            "position": 4,
+            "usable": false
+          },
+          {
+            "color": 16777215,
+            "colors": {
+              "primary_color": 16777215,
+              "primary_hex": "#FFFFFF",
+              "secondary_color": null,
+              "secondary_hex": null,
+              "tertiary_color": null,
+              "tertiary_hex": null
+            },
+            "disabled_reason": null,
+            "id": "1515461944553771199",
+            "label": "release",
+            "managed": false,
+            "position": 3,
+            "usable": true
+          },
+          {
+            "color": 16777215,
+            "colors": {
+              "primary_color": 16777215,
+              "primary_hex": "#FFFFFF",
+              "secondary_color": null,
+              "secondary_hex": null,
+              "tertiary_color": null,
+              "tertiary_hex": null
+            },
+            "disabled_reason": null,
+            "id": "1515462060480135300",
+            "label": "questionable",
+            "managed": false,
+            "position": 2,
+            "usable": true
+          },
+          {
+            "color": 16777215,
+            "colors": {
+              "primary_color": 16777215,
+              "primary_hex": "#FFFFFF",
+              "secondary_color": null,
+              "secondary_hex": null,
+              "tertiary_color": null,
+              "tertiary_hex": null
+            },
+            "disabled_reason": null,
+            "id": "1536175132018479205",
+            "label": "plogon-release",
+            "managed": false,
+            "position": 1,
+            "usable": true
+          }
+        ]
+      },
+      "bot_permissions": "8995102986202689",
+      "channels": [
+        {
+          "id": "1507732018832871434",
+          "manageable_by_bot": false,
+          "name": "announcements",
+          "parent_id": null,
+          "position": 0,
+          "sendable_by_bot": false,
+          "type": 5,
+          "type_name": "GuildNews",
+          "viewable_by_bot": true
+        },
+        {
+          "id": "1379217637841567756",
+          "manageable_by_bot": false,
+          "name": "general",
+          "parent_id": "1379217637841567754",
+          "position": 0,
+          "sendable_by_bot": true,
+          "type": 0,
+          "type_name": "GuildText",
+          "viewable_by_bot": true
+        },
+        {
+          "id": "1379217637841567757",
+          "manageable_by_bot": false,
+          "name": "General",
+          "parent_id": "1379217637841567755",
+          "position": 0,
+          "sendable_by_bot": true,
+          "type": 2,
+          "type_name": "GuildVoice",
+          "viewable_by_bot": true
+        },
+        {
+          "id": "1379217752753180868",
+          "manageable_by_bot": false,
+          "name": "moderator-only",
+          "parent_id": "1515462728754528426",
+          "position": 0,
+          "sendable_by_bot": true,
+          "type": 0,
+          "type_name": "GuildText",
+          "viewable_by_bot": false
+        },
+        {
+          "id": "1379217637841567754",
+          "manageable_by_bot": false,
+          "name": "Text channels",
+          "parent_id": null,
+          "position": 0,
+          "sendable_by_bot": false,
+          "type": 4,
+          "type_name": "GuildCategory",
+          "viewable_by_bot": true
+        },
+        {
+          "id": "1510026908048425030",
+          "manageable_by_bot": false,
+          "name": "bottestinggrounds",
+          "parent_id": "1515462728754528426",
+          "position": 1,
+          "sendable_by_bot": true,
+          "type": 0,
+          "type_name": "GuildText",
+          "viewable_by_bot": true
+        },
+        {
+          "id": "1502845096348094496",
+          "manageable_by_bot": false,
+          "name": "issues",
+          "parent_id": "1379217637841567754",
+          "position": 1,
+          "sendable_by_bot": true,
+          "type": 0,
+          "type_name": "GuildText",
+          "viewable_by_bot": true
+        },
+        {
+          "id": "1379217752753180865",
+          "manageable_by_bot": false,
+          "name": "rules",
+          "parent_id": null,
+          "position": 1,
+          "sendable_by_bot": false,
+          "type": 0,
+          "type_name": "GuildText",
+          "viewable_by_bot": true
+        },
+        {
+          "id": "1379217637841567755",
+          "manageable_by_bot": false,
+          "name": "Voice channels",
+          "parent_id": null,
+          "position": 1,
+          "sendable_by_bot": false,
+          "type": 4,
+          "type_name": "GuildCategory",
+          "viewable_by_bot": true
+        },
+        {
+          "id": "1515462728754528426",
+          "manageable_by_bot": false,
+          "name": "dev",
+          "parent_id": null,
+          "position": 2,
+          "sendable_by_bot": false,
+          "type": 4,
+          "type_name": "GuildCategory",
+          "viewable_by_bot": true
+        },
+        {
+          "id": "1515462639050821772",
+          "manageable_by_bot": false,
+          "name": "roles",
+          "parent_id": null,
+          "position": 2,
+          "sendable_by_bot": false,
+          "type": 0,
+          "type_name": "GuildText",
+          "viewable_by_bot": true
+        },
+        {
+          "id": "1511128688287154277",
+          "manageable_by_bot": false,
+          "name": "todo",
+          "parent_id": "1515462728754528426",
+          "position": 2,
+          "sendable_by_bot": true,
+          "type": 0,
+          "type_name": "GuildText",
+          "viewable_by_bot": false
+        },
+        {
+          "id": "1502845065158987826",
+          "manageable_by_bot": false,
+          "name": "website-feedback",
+          "parent_id": "1379217637841567754",
+          "position": 2,
+          "sendable_by_bot": true,
+          "type": 0,
+          "type_name": "GuildText",
+          "viewable_by_bot": true
+        },
+        {
+          "id": "1507732064797986916",
+          "manageable_by_bot": false,
+          "name": "changelog",
+          "parent_id": null,
+          "position": 3,
+          "sendable_by_bot": false,
+          "type": 0,
+          "type_name": "GuildText",
+          "viewable_by_bot": true
+        },
+        {
+          "id": "1507857881008046294",
+          "manageable_by_bot": false,
+          "name": "discord-bot-discussion",
+          "parent_id": "1379217637841567754",
+          "position": 3,
+          "sendable_by_bot": true,
+          "type": 0,
+          "type_name": "GuildText",
+          "viewable_by_bot": true
+        },
+        {
+          "id": "1525647753705689218",
+          "manageable_by_bot": false,
+          "name": "dalamud-plugin-discussion",
+          "parent_id": "1379217637841567754",
+          "position": 4,
+          "sendable_by_bot": true,
+          "type": 0,
+          "type_name": "GuildText",
+          "viewable_by_bot": true
+        }
+      ],
+      "discord_guild_id": "1379217636696789022",
+      "icon_url": "https://cdn.discordapp.com/icons/1379217636696789022/4781e1ac33f34b2b5dc00ce72dfbd88e.webp?size=256",
+      "member_count": 89,
+      "name": "FullParty",
+      "owner_id": "182520880277094400",
+      "roles": [
+        {
+          "can_assign_by_bot": false,
+          "can_delete_by_bot": false,
+          "color": 16777215,
+          "colors": {
+            "primary_color": 16777215,
+            "primary_hex": "#FFFFFF",
+            "secondary_color": null,
+            "secondary_hex": null,
+            "tertiary_color": null,
+            "tertiary_hex": null
+          },
+          "editable_by_bot": false,
+          "hoist": false,
+          "id": "1511085468979167315",
+          "is_everyone": false,
+          "managed": true,
+          "mentionable": false,
+          "name": "Fullparty-Dev",
+          "permissions": "7336347924769856",
+          "position": 7,
+          "usable_as_run_template": false
+        },
+        {
+          "can_assign_by_bot": false,
+          "can_delete_by_bot": false,
+          "color": 16777215,
+          "colors": {
+            "primary_color": 16777215,
+            "primary_hex": "#FFFFFF",
+            "secondary_color": null,
+            "secondary_hex": null,
+            "tertiary_color": null,
+            "tertiary_hex": null
+          },
+          "editable_by_bot": false,
+          "hoist": false,
+          "id": "1509966575548235796",
+          "is_everyone": false,
+          "managed": true,
+          "mentionable": false,
+          "name": "FullParty",
+          "permissions": "7336347924769856",
+          "position": 6,
+          "usable_as_run_template": false
+        },
+        {
+          "can_assign_by_bot": true,
+          "can_delete_by_bot": true,
+          "color": 15277667,
+          "colors": {
+            "primary_color": 15277667,
+            "primary_hex": "#E91E63",
+            "secondary_color": null,
+            "secondary_hex": null,
+            "tertiary_color": null,
+            "tertiary_hex": null
+          },
+          "editable_by_bot": true,
+          "hoist": false,
+          "id": "1510027172193243267",
+          "is_everyone": false,
+          "managed": false,
+          "mentionable": false,
+          "name": "qteasas",
+          "permissions": "0",
+          "position": 5,
+          "usable_as_run_template": true
+        },
+        {
+          "can_assign_by_bot": false,
+          "can_delete_by_bot": false,
+          "color": 16777215,
+          "colors": {
+            "primary_color": 16777215,
+            "primary_hex": "#FFFFFF",
+            "secondary_color": null,
+            "secondary_hex": null,
+            "tertiary_color": null,
+            "tertiary_hex": null
+          },
+          "editable_by_bot": false,
+          "hoist": false,
+          "id": "1515461826115014750",
+          "is_everyone": false,
+          "managed": true,
+          "mentionable": false,
+          "name": "AutoRole",
+          "permissions": "1099780063264",
+          "position": 4,
+          "usable_as_run_template": false
+        },
+        {
+          "can_assign_by_bot": true,
+          "can_delete_by_bot": true,
+          "color": 16777215,
+          "colors": {
+            "primary_color": 16777215,
+            "primary_hex": "#FFFFFF",
+            "secondary_color": null,
+            "secondary_hex": null,
+            "tertiary_color": null,
+            "tertiary_hex": null
+          },
+          "editable_by_bot": true,
+          "hoist": false,
+          "id": "1515461944553771199",
+          "is_everyone": false,
+          "managed": false,
+          "mentionable": false,
+          "name": "release",
+          "permissions": "0",
+          "position": 3,
+          "usable_as_run_template": true
+        },
+        {
+          "can_assign_by_bot": true,
+          "can_delete_by_bot": true,
+          "color": 16777215,
+          "colors": {
+            "primary_color": 16777215,
+            "primary_hex": "#FFFFFF",
+            "secondary_color": null,
+            "secondary_hex": null,
+            "tertiary_color": null,
+            "tertiary_hex": null
+          },
+          "editable_by_bot": true,
+          "hoist": false,
+          "id": "1515462060480135300",
+          "is_everyone": false,
+          "managed": false,
+          "mentionable": false,
+          "name": "questionable",
+          "permissions": "0",
+          "position": 2,
+          "usable_as_run_template": true
+        },
+        {
+          "can_assign_by_bot": true,
+          "can_delete_by_bot": true,
+          "color": 16777215,
+          "colors": {
+            "primary_color": 16777215,
+            "primary_hex": "#FFFFFF",
+            "secondary_color": null,
+            "secondary_hex": null,
+            "tertiary_color": null,
+            "tertiary_hex": null
+          },
+          "editable_by_bot": true,
+          "hoist": false,
+          "id": "1536175132018479205",
+          "is_everyone": false,
+          "managed": false,
+          "mentionable": false,
+          "name": "plogon-release",
+          "permissions": "0",
+          "position": 1,
+          "usable_as_run_template": true
+        },
+        {
+          "can_assign_by_bot": false,
+          "can_delete_by_bot": false,
+          "color": 16777215,
+          "colors": {
+            "primary_color": 16777215,
+            "primary_hex": "#FFFFFF",
+            "secondary_color": null,
+            "secondary_hex": null,
+            "tertiary_color": null,
+            "tertiary_hex": null
+          },
+          "editable_by_bot": false,
+          "hoist": false,
+          "id": "1379217636696789022",
+          "is_everyone": true,
+          "managed": false,
+          "mentionable": false,
+          "name": "@everyone",
+          "permissions": "2222085186637377",
+          "position": 0,
+          "usable_as_run_template": false
+        }
+      ],
+      "settings": {
+        "bot_log_channel_id": "1510026908048425030",
+        "bot_moderator_role_id": "1515462060480135300",
+        "linked_at": "2026-06-30T23:10:59.653Z",
+        "schedule_refresh_enabled": false,
+        "schedule_refresh_channel_id": null,
+        "schedule_refresh_interval_days": 1,
+        "run_role_template_overrides": [],
+        "run_announcement_channel_id": "1510026908048425030",
+        "run_role_template_id": "1510027172193243267",
+        "sync_discord_names_to_ff14": false,
+        "upcoming_raider_role_id": "1510027172193243267"
+      }
+    },
+    "membership_cache": {
+      "cache_age_seconds": 72775,
+      "cached_member_count": 86,
+      "discord_member_count": 89,
+      "discord_guild_id": "1379217636696789022",
+      "discord_user_ids": [
+        "1063228533817745469",
+        "117095067910406146",
+        "1175239819211841677",
+        "117630657860993030",
+        "117710172452945920",
+        "125728252324085760",
+        "126321762483830785",
+        "130687226802733056",
+        "1308074525921116221",
+        "1320339561011744889",
+        "1358426074366611559",
+        "137883060417855489",
+        "138733129333473280",
+        "1439335460060004614",
+        "1486876636854091837",
+        "1500953914038812814",
+        "1510732755603034145",
+        "1524070603873845432",
+        "152811932955443200",
+        "152871217144004608",
+        "1534291023960998099",
+        "155000476343992320",
+        "161517429724413954",
+        "164970192835837952",
+        "168049519605448705",
+        "182520880277094400",
+        "190167758053441536",
+        "191677903312912384",
+        "192699584722501646",
+        "198868746041819136",
+        "202134443371134976",
+        "208411131876737024",
+        "214096770349662209",
+        "216864474391511040",
+        "218210640035184640",
+        "227859343595274241",
+        "233375536032907264",
+        "235069824320012298",
+        "235081453212270592",
+        "236892385961836544",
+        "237653115002814475",
+        "238718258251956224",
+        "239297570361442305",
+        "240545341773053952",
+        "243146088117174272",
+        "251002755307536384",
+        "256139939043868683",
+        "262742008680939520",
+        "271670328671862784",
+        "280031381717778433",
+        "288772247563534336",
+        "297846810884571136",
+        "298271985698471939",
+        "304881504394412032",
+        "307911894927409162",
+        "309434307750133760",
+        "315499915851857922",
+        "315868678405226497",
+        "338614950291308554",
+        "345575811820027908",
+        "354376573710761985",
+        "359426469644075009",
+        "402870043295350794",
+        "409092526658682881",
+        "416778436506419210",
+        "447929691098054656",
+        "464935751503577088",
+        "473501568419758090",
+        "491864345995771914",
+        "545918228912668673",
+        "551850513495359489",
+        "567103298566357013",
+        "579418765872332860",
+        "646437715570720791",
+        "671351668352483329",
+        "69180513109159936",
+        "717101547326275605",
+        "725973469510238208",
+        "753418693412782547",
+        "781161178789052427",
+        "81124278887514112",
+        "834498897812521042",
+        "838126850613313637",
+        "86205008604856320",
+        "872480790578073670",
+        "937276764542091276"
+      ],
+      "last_error": null,
+      "last_full_refresh_at": "2026-10-09T17:11:08.508Z",
+      "member_count": 86,
+      "next_refresh_after": "2026-10-10T17:11:08.508Z",
+      "refresh_status": "fresh",
+      "stale": false,
+      "updated_at": "2026-10-09T17:11:08.508Z"
+    },
+    "run_role_mappings": [],
+    "schedule_refresh": null,
+    "settings": {
+      "bot_log_channel_id": "1510026908048425030",
+      "bot_moderator_role_id": "1515462060480135300",
+      "linked_at": "2026-06-30T23:10:59.653Z",
+      "schedule_refresh_enabled": false,
+      "schedule_refresh_channel_id": null,
+      "schedule_refresh_interval_days": 1,
+      "run_role_template_overrides": [],
+      "run_announcement_channel_id": "1510026908048425030",
+      "run_role_template_id": "1510027172193243267",
+      "sync_discord_names_to_ff14": false,
+      "upcoming_raider_role_id": "1510027172193243267"
+    }
+  }
+}

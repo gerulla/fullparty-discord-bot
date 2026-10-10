@@ -1,9 +1,11 @@
+import { messageComponents, messageText } from "./helpers/messages.js";
 import { createHmac } from "node:crypto";
 import { once } from "node:events";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import type { Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { MessageCreateOptions } from "discord.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AdminStore } from "@fullparty/admin";
@@ -11,6 +13,8 @@ import type { BotContext } from "../src/bot/context.js";
 import { SqliteDmQueueStore } from "../src/dm/queueStore.js";
 import { UserDmRateLimiter } from "../src/dm/userDmRateLimiter.js";
 import { replyWithAutomationFailureDetails } from "../src/guildAutomation/automationFailureDetails.js";
+import { GuildAutomationService } from "../src/guildAutomation/automationService.js";
+import { SqliteGuildRunReminderQueue } from "../src/guildAutomation/runReminderQueue.js";
 import type { GuildRunRoleMapping } from "../src/guildAutomation/runRoleStore.js";
 import { createWebhookServer, stopWebhookServer } from "../src/http/server.js";
 import type { WebhookServerOptions } from "../src/http/types.js";
@@ -680,6 +684,7 @@ describe("Fullparty webhook server", () => {
           id: "discord-user-id",
         },
         welcome_message: "Welcome aboard.",
+        account_settings_url: "https://fullparty.gg/account/notifications",
       },
       event: "discord.user_app.installed",
     };
@@ -694,7 +699,16 @@ describe("Fullparty webhook server", () => {
       },
       status: 200,
     });
-    expect(sentMessages).toEqual([{ content: "Welcome aboard." }]);
+    expect(sentMessages).toHaveLength(1);
+    expectV2Message(sentMessages[0]);
+    expect(messageText(sentMessages[0])).toContain("Welcome aboard.");
+    expect(messageText(sentMessages[0])).toContain("`/help`");
+    expect(messageComponents(sentMessages[0])).toContainEqual(
+      expect.objectContaining({
+        label: "Account Settings",
+        url: payload.data.account_settings_url,
+      }),
+    );
   });
 
   it("sends the default welcome DM when no custom message is provided", async () => {
@@ -734,12 +748,13 @@ describe("Fullparty webhook server", () => {
       },
       status: 200,
     });
-    expect(sentMessages).toEqual([
-      {
-        content:
-          "Hey, welcome to FullParty. Your Discord account is connected and ready to go.\n\nYou can use `/runs` to check your upcoming runs and `/applications` to review your FullParty applications right here in DMs.\n\nI'll also send your FullParty notifications in this DM, so run updates, applications, reminders, and account changes stay easy to find.\n\nYou can disconnect this anytime from your FullParty account settings.",
-      },
-    ]);
+    expect(sentMessages).toHaveLength(1);
+    expectV2Message(sentMessages[0]);
+    expect(messageText(sentMessages[0])).toMatch(
+      /Thank you for connecting your Discord account/iu,
+    );
+    expect(messageText(sentMessages[0])).toContain("`/help`");
+    expect(messageText(sentMessages[0])).toContain("FullParty account settings");
   });
 
   it("returns queued DM results when the per-user DM limiter delays delivery", async () => {
@@ -829,6 +844,8 @@ describe("Fullparty webhook server", () => {
         discord_user: {
           id: "discord-user-id",
         },
+        feedback_url: "https://fullparty.gg/feedback",
+        disconnect_guide_image_url: "https://fullparty.gg/images/discord-disconnect.png",
       },
       event: "discord.user_app.disconnected",
     };
@@ -843,12 +860,325 @@ describe("Fullparty webhook server", () => {
       },
       status: 200,
     });
-    expect(sentMessages).toEqual([
-      {
-        content:
-          "FullParty has disconnected Discord for your account.\nTo fully remove the app from Discord, open Discord Settings > Authorized Apps and remove FullParty.",
+    expect(sentMessages).toHaveLength(1);
+    expectV2Message(sentMessages[0]);
+    expect(messageText(sentMessages[0])).toMatch(
+      /has been disconnected from your account/iu,
+    );
+    expect(messageText(sentMessages[0])).toContain("Authorized Apps");
+    expect(messageComponents(sentMessages[0])).toContainEqual(
+      expect.objectContaining({
+        label: "Leave Feedback",
+        url: payload.data.feedback_url,
+      }),
+    );
+    expect(messageComponents(sentMessages[0])).toContainEqual(
+      expect.objectContaining({
+        type: 12,
+        items: [{ media: { url: payload.data.disconnect_guide_image_url } }],
+      }),
+    );
+  });
+
+  it("queues a standalone Discord login event without notification delivery IDs", async () => {
+    const context = createContext();
+    const store = new SqliteDmQueueStore(":memory:");
+    const limiter = new UserDmRateLimiter({
+      store,
+      logger: context.logger,
+      startPaused: true,
+    });
+    context.userDmRateLimiter = limiter;
+    const send = vi
+      .fn<(message: unknown) => Promise<{ id: string }>>()
+      .mockResolvedValue({ id: "login-welcome-message" });
+    const fetchUser = vi.fn(() => Promise.resolve({ send }));
+    const baseUrl = await listen(
+      createTestServer({
+        context,
+        client: { users: { fetch: fetchUser } } as never,
+      }),
+    );
+    const payload = {
+      ...discordLoginEvent(),
+      data: {
+        ...discordLoginEvent().data,
+        account_settings_url: "https://fullparty.gg/account/notifications",
       },
-    ]);
+    };
+
+    try {
+      await expect(postAction(baseUrl, payload)).resolves.toMatchObject({
+        status: 200,
+        body: {
+          ok: true,
+          event: "user.discord_login",
+          result: {
+            queued: true,
+            discordUserId: payload.data.discord_user_id,
+          },
+        },
+      });
+      expect(store.pending()).toMatchObject([
+        {
+          payload: {
+            discordUserId: payload.data.discord_user_id,
+            message: { flags: 32768 },
+            metadata: {
+              eventType: "user.discord_login",
+              notificationType: "user.discord_login",
+            },
+          },
+        },
+      ]);
+      expect(store.pending()[0]?.payload.metadata).not.toHaveProperty(
+        "notificationDeliveryId",
+      );
+      expect(fetchUser).not.toHaveBeenCalled();
+
+      limiter.resume();
+      await vi.waitFor(() => {
+        expect(store.pending()).toEqual([]);
+      });
+      expect(fetchUser).toHaveBeenCalledExactlyOnceWith(payload.data.discord_user_id);
+      expect(send).toHaveBeenCalledOnce();
+      const message = send.mock.calls[0]?.[0] as MessageCreateOptions;
+      expectV2Message(message);
+      expect(messageText(message)).toContain("Welcome to FullParty");
+      expect(messageText(message)).toContain("Automated Setup");
+      expect(messageText(message)).toContain("Manual Setup");
+      expect(messageText(message)).toContain("`/link token:<code>`");
+      expect(messageComponents(message)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            label: "Finish Discord Setup",
+            url: payload.data.discord_app_install_url,
+          }),
+          expect.objectContaining({
+            label: "Account Settings",
+            url: payload.data.account_settings_url,
+          }),
+        ]),
+      );
+    } finally {
+      limiter.stop();
+      await limiter.waitForIdle();
+      store.close();
+    }
+  });
+
+  it.each([
+    ["absent", undefined],
+    ["null", null],
+    ["unsafe", "javascript:alert(1)"],
+    ["credential-bearing", "https://user:password@fullparty.gg/private"],
+  ])(
+    "delivers V2 account events with %s optional presentation URLs",
+    async (_name, url) => {
+      const send = vi
+        .fn<(message: unknown) => Promise<{ id: string }>>()
+        .mockResolvedValue({ id: "account-message-id" });
+      const fetchUser = vi.fn(() => Promise.resolve({ send }));
+      const baseUrl = await listen(
+        createTestServer({ client: { users: { fetch: fetchUser } } as never }),
+      );
+      const login = discordLoginEvent();
+      const events = [
+        {
+          event: "discord.user_app.installed",
+          data: {
+            discord_user: { id: login.data.discord_user_id },
+            account_settings_url: url,
+          },
+        },
+        {
+          event: "discord.user_app.disconnected",
+          data: {
+            discord_user: { id: login.data.discord_user_id },
+            feedback_url: url,
+            disconnect_guide_image_url: url,
+          },
+        },
+        { ...login, data: { ...login.data, account_settings_url: url } },
+      ];
+
+      for (const event of events) {
+        await expect(postAction(baseUrl, event)).resolves.toMatchObject({ status: 200 });
+      }
+      expect(send).toHaveBeenCalledTimes(3);
+      for (const [message] of send.mock.calls) {
+        expectV2Message(message);
+        expect(JSON.stringify(message)).not.toContain("javascript:");
+        expect(JSON.stringify(message)).not.toContain("user:password");
+      }
+      expect(
+        messageComponents(send.mock.calls[1]?.[0]).some(({ type }) => type === 12),
+      ).toBe(false);
+    },
+  );
+
+  it("skips Discord login onboarding when the app is already installed", async () => {
+    const fetchUser = vi.fn();
+    const baseUrl = await listen(
+      createTestServer({ client: { users: { fetch: fetchUser } } as never }),
+    );
+    const payload = discordLoginEvent();
+
+    await expect(
+      postAction(baseUrl, {
+        ...payload,
+        data: { ...payload.data, discord_app_installed: true },
+      }),
+    ).resolves.toMatchObject({
+      status: 200,
+      body: {
+        ok: true,
+        result: {
+          discordUserId: payload.data.discord_user_id,
+          reason: "discord_app_already_installed",
+          skipped: true,
+        },
+      },
+    });
+    expect(fetchUser).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a nonnumeric Discord ID", { discord_user_id: "not-a-discord-id" }],
+    ["a numeric Discord ID", { discord_user_id: 123 }],
+    ["a missing Discord ID", { discord_user_id: undefined }],
+    ["a string installation flag", { discord_app_installed: "false" }],
+    ["a missing installation flag", { discord_app_installed: undefined }],
+    ["a missing install URL", { discord_app_install_url: undefined }],
+    ["a script install URL", { discord_app_install_url: "javascript:alert(1)" }],
+    ["a file install URL", { discord_app_install_url: "file:///local/install" }],
+    [
+      "a relative install URL",
+      { discord_app_install_url: "/auth/discord-app/user/redirect" },
+    ],
+    [
+      "an install URL containing credentials",
+      { discord_app_install_url: "https://user:password@fullparty.gg/install" },
+    ],
+  ])(
+    "rejects Discord login onboarding with %s before sending",
+    async (_name, changes) => {
+      const fetchUser = vi.fn();
+      const baseUrl = await listen(
+        createTestServer({ client: { users: { fetch: fetchUser } } as never }),
+      );
+      const payload = discordLoginEvent();
+
+      await expect(
+        postAction(baseUrl, { ...payload, data: { ...payload.data, ...changes } }),
+      ).resolves.toMatchObject({ status: 400 });
+      expect(fetchUser).not.toHaveBeenCalled();
+    },
+  );
+
+  it("requires a signature before handling a standalone Discord login event", async () => {
+    const fetchUser = vi.fn();
+    const baseUrl = await listen(
+      createTestServer({ client: { users: { fetch: fetchUser } } as never }),
+    );
+
+    await expect(
+      fetchJson(`${baseUrl}/events`, {
+        body: JSON.stringify(discordLoginEvent()),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+    ).resolves.toMatchObject({
+      status: 401,
+      body: { error: "missing_signature" },
+    });
+    expect(fetchUser).not.toHaveBeenCalled();
+  });
+
+  it("queues signed Discord login onboarding for the payload recipient", async () => {
+    const context = createContext();
+    const store = new SqliteDmQueueStore(":memory:");
+    const limiter = new UserDmRateLimiter({
+      store,
+      logger: context.logger,
+      startPaused: true,
+    });
+    context.userDmRateLimiter = limiter;
+    const send = vi
+      .fn<(message: unknown) => Promise<{ id: string }>>()
+      .mockResolvedValue({ id: "login-welcome-message" });
+    const fetchUser = vi.fn(() => Promise.resolve({ send }));
+    const baseUrl = await listen(
+      createTestServer({
+        context,
+        client: { users: { fetch: fetchUser } } as never,
+      }),
+    );
+    const actionUrl = "https://fullparty.gg/en/settings/discord";
+
+    try {
+      await expect(
+        postAction(baseUrl, {
+          event: "discord.notification.delivery",
+          data: {
+            type: "user.discord_login",
+            category: "account_character_updates",
+            discord_user: { id: "234567890123456789" },
+            notification_delivery_id: 321,
+            notification_event_id: 654,
+            notification: {
+              type: "user.discord_login",
+              category: "account_character_updates",
+              action_url: actionUrl,
+            },
+          },
+        }),
+      ).resolves.toMatchObject({
+        status: 200,
+        body: {
+          ok: true,
+          result: {
+            queued: true,
+            discordUserId: "234567890123456789",
+            notificationDeliveryId: 321,
+            notificationEventId: 654,
+            type: "user.discord_login",
+          },
+        },
+      });
+      expect(store.pending()).toMatchObject([
+        {
+          payload: {
+            discordUserId: "234567890123456789",
+            metadata: {
+              eventType: "discord.notification.delivery",
+              notificationDeliveryId: 321,
+              notificationType: "user.discord_login",
+            },
+          },
+        },
+      ]);
+      expect(fetchUser).not.toHaveBeenCalled();
+
+      limiter.resume();
+      await vi.waitFor(() => {
+        expect(store.pending()).toEqual([]);
+      });
+      expect(fetchUser).toHaveBeenCalledExactlyOnceWith("234567890123456789");
+      expect(send).toHaveBeenCalledOnce();
+      const message = send.mock.calls[0]?.[0] as MessageCreateOptions;
+      expectV2Message(message);
+      expect(messageText(message)).toContain("Welcome to FullParty");
+      expect(messageText(message)).toMatch(/authoriz/iu);
+      expect(messageText(message)).toContain("Manual Setup");
+      expect(messageComponents(message)).toContainEqual(
+        expect.objectContaining({ label: "Finish Discord Setup", url: actionUrl }),
+      );
+    } finally {
+      limiter.stop();
+      await limiter.waitForIdle();
+      store.close();
+    }
   });
 
   it("sends notification delivery DMs from wrapped and direct payloads", async () => {
@@ -892,31 +1222,35 @@ describe("Fullparty webhook server", () => {
       },
     };
     const expectedMessage = {
+      nonce: expect.stringMatching(/^[a-f0-9]{24}$/u) as unknown,
+      enforceNonce: true,
+      flags: 32768,
+      allowedMentions: {
+        parse: [],
+        repliedUser: false,
+      },
       components: [
         {
+          type: 17,
+          accent_color: 6539064,
           components: [
             {
-              emoji: {
-                name: "🔗",
-              },
-              label: "View assignment",
-              style: 5,
+              type: 10,
+              content:
+                "## 🔄 Roster assignment updated\nYou were assigned on the roster for **Your run**.",
+            },
+          ],
+        },
+        {
+          type: 1,
+          components: [
+            {
               type: 2,
+              style: 5,
+              label: "View Assignment",
               url: "https://fullparty.gg/groups/example/activities/99",
             },
           ],
-          type: 1,
-        },
-      ],
-      embeds: [
-        {
-          color: 0x22c55e,
-          description: "You were assigned to a roster slot.",
-          footer: {
-            text: "🎯 FullParty • Assignments",
-          },
-          title: "✅ Roster assignment updated",
-          url: "https://fullparty.gg/groups/example/activities/99",
         },
       ],
     };
@@ -960,6 +1294,232 @@ describe("Fullparty webhook server", () => {
       status: 200,
     });
     expect(sentMessages).toEqual([expectedMessage, expectedMessage]);
+  });
+
+  it.each(
+    [
+      { key: "trapper", label: "Trapper", activity: "BA Weekly Run" },
+      { key: "trapper", label: "Trapper", activity: "DRS Weekly Run" },
+      { key: "darter", label: "Darter", activity: "BA Weekly Run" },
+      { key: "duelist", label: "Duelist", activity: "DRS Weekly Run" },
+    ].flatMap((designation) =>
+      [true, false].map((assigned) => ({ ...designation, assigned })),
+    ),
+  )(
+    "delivers $label for $activity with designation_assigned=$assigned",
+    async ({ key, label, activity, assigned }) => {
+      const context = createContext();
+      const send = vi
+        .fn<(message: unknown) => Promise<{ id: string }>>()
+        .mockResolvedValue({ id: "designation-dm-message-id" });
+      const fetchUser = vi.fn(() => Promise.resolve({ send }));
+      const baseUrl = await listen(
+        createTestServer({
+          context,
+          client: { users: { fetch: fetchUser } } as never,
+        }),
+      );
+      const type = assigned
+        ? "assignments.designation_assigned"
+        : "assignments.designation_removed";
+      const payload = {
+        event: "discord.notification.delivery",
+        data: {
+          type,
+          category: "assignments",
+          discord_user: { id: "234567890123456789" },
+          notification_delivery_id: 123,
+          notification_event_id: 456,
+          user: { id: 42, name: "FullParty account name" },
+          notification: {
+            type,
+            category: "assignments",
+            action_url: "/groups/example-raiders/activities/195",
+            params: {
+              activity,
+              group: "Example Raiders",
+              character: "Luna Crest",
+              slot: "Party A 1",
+              slot_group: "Party A",
+              designation: "Stale designation label",
+            },
+            payload: {
+              activity_id: 195,
+              group_id: 1,
+              character_id: 42,
+              slot_id: 1234,
+              designation_key: key,
+              designation_label: label,
+              designation_assigned: assigned,
+              run_url: "https://fullparty.gg/older-run-url",
+            },
+          },
+        },
+      };
+
+      await expect(postAction(baseUrl, payload)).resolves.toMatchObject({
+        status: 200,
+        body: {
+          ok: true,
+          event: "discord.notification.delivery",
+          result: {
+            discordUserId: "234567890123456789",
+            notificationDeliveryId: 123,
+            notificationEventId: 456,
+            type,
+          },
+        },
+      });
+      expect(fetchUser).toHaveBeenCalledExactlyOnceWith("234567890123456789");
+      expect(send).toHaveBeenCalledOnce();
+      const message = send.mock.calls[0]?.[0];
+      expect(message).toMatchObject({
+        flags: 32768,
+        allowedMentions: { parse: [], repliedUser: false },
+      });
+      expect(messageText(message)).toContain(
+        `${label} ${assigned ? "assigned" : "removed"}`,
+      );
+      expect(messageText(message)).toContain(activity);
+      expect(messageText(message)).not.toContain("Stale designation label");
+      expect(
+        messageComponents(message).filter((component) => component.type === 2),
+      ).toEqual([
+        {
+          type: 2,
+          style: 5,
+          label: "View run",
+          url: "https://fullparty.gg/groups/example-raiders/activities/195",
+        },
+      ]);
+      expect(context.payloads.get()).toMatchObject({ payload });
+    },
+  );
+
+  it("rejects an unsigned designation delivery before fetching the Discord user", async () => {
+    const fetchUser = vi.fn();
+    const baseUrl = await listen(
+      createTestServer({ client: { users: { fetch: fetchUser } } as never }),
+    );
+
+    await expect(
+      fetchJson(`${baseUrl}/events`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          event: "discord.notification.delivery",
+          data: {
+            type: "assignments.designation_assigned",
+            category: "assignments",
+            discord_user: { id: "234567890123456789" },
+            notification_delivery_id: 123,
+            notification_event_id: 456,
+            notification: {
+              type: "assignments.designation_assigned",
+              category: "assignments",
+              payload: {
+                designation_key: "trapper",
+                designation_label: "Trapper",
+                designation_assigned: true,
+              },
+            },
+          },
+        }),
+      }),
+    ).resolves.toMatchObject({
+      status: 401,
+      body: { error: "missing_signature" },
+    });
+    expect(fetchUser).not.toHaveBeenCalled();
+  });
+
+  it("deduplicates a signed designation delivery before queueing a second DM", async () => {
+    const context = createContext();
+    const store = new SqliteDmQueueStore(":memory:");
+    const limiter = new UserDmRateLimiter({
+      store,
+      logger: context.logger,
+      startPaused: true,
+    });
+    context.userDmRateLimiter = limiter;
+    const send = vi
+      .fn<(message: unknown) => Promise<{ id: string }>>()
+      .mockResolvedValue({ id: "designation-message" });
+    const fetchUser = vi.fn(() => Promise.resolve({ send }));
+    const baseUrl = await listen(
+      createTestServer({
+        context,
+        client: { users: { fetch: fetchUser } } as never,
+      }),
+    );
+    const rawBody = JSON.stringify({
+      id: "designation-request-id",
+      event: "discord.notification.delivery",
+      data: {
+        type: "assignments.designation_assigned",
+        category: "assignments",
+        discord_user: { id: "234567890123456789" },
+        notification_delivery_id: 123,
+        notification_event_id: 456,
+        notification: {
+          type: "assignments.designation_assigned",
+          category: "assignments",
+          action_url: "https://fullparty.gg/groups/example/activities/195",
+          params: { activity: "BA Weekly Run" },
+          payload: {
+            activity_id: 195,
+            designation_key: "trapper",
+            designation_label: "Trapper",
+            designation_assigned: true,
+          },
+        },
+      },
+    });
+    const timestamp = currentTimestamp();
+    const request: RequestInit = {
+      method: "POST",
+      body: rawBody,
+      headers: {
+        "content-type": "application/json",
+        "x-fullparty-signature": signBody(timestamp, rawBody),
+        "x-fullparty-timestamp": timestamp,
+      },
+    };
+
+    try {
+      await expect(fetchJson(`${baseUrl}/events`, request)).resolves.toMatchObject({
+        status: 200,
+        body: {
+          ok: true,
+          result: {
+            queued: true,
+            discordUserId: "234567890123456789",
+            notificationDeliveryId: 123,
+          },
+        },
+      });
+      await expect(fetchJson(`${baseUrl}/events`, request)).resolves.toMatchObject({
+        status: 200,
+        body: {
+          ok: true,
+          result: { duplicate: true, notificationDeliveryId: 123 },
+        },
+      });
+      expect(store.pending()).toHaveLength(1);
+      expect(fetchUser).not.toHaveBeenCalled();
+
+      limiter.resume();
+      await vi.waitFor(() => {
+        expect(store.pending()).toEqual([]);
+      });
+      expect(fetchUser).toHaveBeenCalledExactlyOnceWith("234567890123456789");
+      expect(send).toHaveBeenCalledOnce();
+      expect(messageText(send.mock.calls[0]?.[0])).toContain("Trapper assigned");
+    } finally {
+      limiter.stop();
+      await limiter.waitForIdle();
+      store.close();
+    }
   });
 
   it.each(["fetch", "send"])(
@@ -1125,6 +1685,79 @@ describe("Fullparty webhook server", () => {
         kind: "run_reminder",
       },
     ]);
+  });
+
+  it("accepts and deduplicates reminders while the queued Discord start notice is pending", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "fullparty-reminder-acceptance-"));
+    tempDirs.push(directory);
+    let releaseDiscord: () => void = () => undefined;
+    const discordSend = new Promise<void>((resolve) => {
+      releaseDiscord = resolve;
+    });
+    const send = vi.fn(() => discordSend);
+    const processor = vi.fn(() => Promise.resolve({ ok: true }));
+    const client = {
+      channels: { fetch: () => Promise.resolve({ send }) },
+    } as never;
+    const context = createContext();
+    context.guildSettings.get = (guildId) =>
+      Promise.resolve({
+        botLogChannelId: "bot-log-channel-id",
+        guildId,
+        syncDiscordNamesToFf14: false,
+      });
+    const automation = new GuildAutomationService({ client, context });
+    const queue = new SqliteGuildRunReminderQueue({
+      databasePath: join(directory, "queue.sqlite"),
+      logger: context.logger,
+      onFirstAttempt: (job) =>
+        job.kind === "run_reminder"
+          ? automation.notifyStarted(job.data)
+          : Promise.resolve(),
+      processor,
+    });
+    context.guildRunReminderQueue = queue;
+    queue.start();
+    const baseUrl = await listen(createTestServer({ client, context }));
+    const event = {
+      data: {
+        discord_guild_id: "900100200300400500",
+        discord_user_ids: ["123"],
+        participants: [],
+        reminder_type: "starting_soon",
+        run_id: 123,
+        type: "runs.starting_soon",
+      },
+      event: "discord.guild.run_reminder",
+    };
+
+    try {
+      await expect(
+        postAction(baseUrl, event, AbortSignal.timeout(1000)),
+      ).resolves.toMatchObject({
+        body: { result: { alreadyQueued: false, queued: true } },
+        status: 200,
+      });
+      await vi.waitFor(() => {
+        expect(send).toHaveBeenCalledOnce();
+      });
+      await expect(
+        postAction(baseUrl, event, AbortSignal.timeout(1000)),
+      ).resolves.toMatchObject({
+        body: { result: { alreadyQueued: true, queued: true } },
+        status: 200,
+      });
+      expect(send).toHaveBeenCalledOnce();
+      expect(processor).not.toHaveBeenCalled();
+
+      releaseDiscord();
+      await vi.waitFor(() => {
+        expect(processor).toHaveBeenCalledOnce();
+      });
+    } finally {
+      releaseDiscord();
+      await queue.stop();
+    }
   });
 
   it("assigns the upcoming raider role for guild run reminders", async () => {
@@ -1406,98 +2039,25 @@ describe("Fullparty webhook server", () => {
       ) as string,
     });
     expect(logMessages[1]).toMatchObject({
-      allowedMentions: {
-        parse: [],
-      },
-      embeds: [
-        {
-          color: 0x22c55e,
-          description: expect.stringContaining(
-            "**Run #123** • 🕒 **Upcoming**",
-          ) as string,
-          fields: expect.arrayContaining([
-            {
-              inline: true,
-              name: "✅ Successful Assignments",
-              value: "2 users\nassigned",
-            },
-            {
-              inline: true,
-              name: "❌ Failed Assignments",
-              value: "0 users\nfailed",
-            },
-            {
-              inline: true,
-              name: "📈 Success Rate",
-              value: "100.0%\nassignment rate",
-            },
-            {
-              inline: true,
-              name: "🛡️ Run Role",
-              value: "<@&run-role-id>\n`Run: Delubrum Reginae (Savage) 21:00 UTC`",
-            },
-            {
-              inline: true,
-              name: "📋 Template",
-              value: "<@&abyssos-role-id>",
-            },
-            {
-              inline: true,
-              name: "🔐 Channel Access",
-              value: "1 overwrite\ncopied",
-            },
-          ]) as unknown[],
-          footer: {
-            text: "FullParty • Guild Automation",
-          },
-          title: "🛡️ Role Assignment - Complete",
-        },
-      ],
+      flags: 32768,
+      allowedMentions: { parse: [] },
     });
+    expect(messageText(logMessages[1])).toContain("Role Assignment - Success");
+    expect(messageText(logMessages[1])).toContain("**Run #123** • Upcoming");
+    expect(messageText(logMessages[1])).toContain("**2 / 2** users assigned");
+    expect(messageText(logMessages[1])).toContain(
+      "<@&abyssos-role-id> > <@&run-role-id>",
+    );
+    expect(messageText(logMessages[1])).toContain("1 overwrite copied");
     expect(logMessages[2]).toMatchObject({
-      allowedMentions: {
-        parse: [],
-      },
-      embeds: [
-        {
-          color: 0x22c55e,
-          description: expect.stringContaining(
-            "**Run #123** • 🕒 **Upcoming**",
-          ) as string,
-          fields: expect.arrayContaining([
-            {
-              inline: true,
-              name: "✅ Successful Updates",
-              value: "1 user\nupdated",
-            },
-            {
-              inline: true,
-              name: "☑️ Already Correct",
-              value: "1 user\nunchanged",
-            },
-            {
-              inline: true,
-              name: "❌ Failed Updates",
-              value: "0 users\nfailed",
-            },
-            {
-              inline: true,
-              name: "📈 Success Rate",
-              value: "100.0%\nhandled",
-            },
-            {
-              inline: true,
-              name: "🔄 Update Mode",
-              value: "Primary character\nName Surname [World]",
-            },
-          ]) as unknown[],
-          footer: {
-            text: "FullParty • Guild Automation",
-          },
-          title: "🏷️ Nickname Synchronization - Complete",
-        },
-      ],
+      flags: 32768,
+      allowedMentions: { parse: [] },
     });
+    expect(messageText(logMessages[2])).toContain("Nickname Synchronization - Success");
+    expect(messageText(logMessages[2])).toContain("1 user updated");
+    expect(messageText(logMessages[2])).toContain("1 already correct");
+    expect(messageText(logMessages[2])).toContain("0 users failed");
+    expect(messageText(logMessages[2])).toContain("Primary character");
   });
 
   it("skips guild run reminder role assignment when no role is configured", async () => {
@@ -1572,31 +2132,15 @@ describe("Fullparty webhook server", () => {
         "⚙️ Automation started for Run #123 Starting Now.\nRole assignment and nickname sync status will follow here.",
     });
     expect(logMessages[1]).toMatchObject({
-      allowedMentions: {
-        parse: [],
-      },
-      embeds: [
-        {
-          color: 0x64748b,
-          description: expect.stringContaining(
-            "**Run #123** • 🚨 **Starting Now**",
-          ) as string,
-          fields: expect.arrayContaining([
-            {
-              inline: true,
-              name: "🛡️ Run Role",
-              value: "_Not created_",
-            },
-            {
-              inline: false,
-              name: "ℹ️ Note",
-              value: "Run role template is not configured in `/setup`.",
-            },
-          ]) as unknown[],
-          title: "🛡️ Role Assignment - Skipped",
-        },
-      ],
+      flags: 32768,
+      allowedMentions: { parse: [] },
     });
+    expect(messageText(logMessages[1])).toContain("Role Assignment - Skipped");
+    expect(messageText(logMessages[1])).toContain("Starting Now");
+    expect(messageText(logMessages[1])).toContain("Not configured > Not created");
+    expect(messageText(logMessages[1])).toContain(
+      "Run role template is not configured in `/setup`.",
+    );
   });
 
   it("adds a failure details button to partial guild run reminder automation logs", async () => {
@@ -1739,35 +2283,17 @@ describe("Fullparty webhook server", () => {
     });
 
     expect(logMessages[1]).toMatchObject({
-      components: [
-        {
-          components: [
-            {
-              custom_id: expect.stringMatching(/^automationfailures:/u) as string,
-              label: "Failure Details",
-            },
-          ],
-        },
-      ],
-      embeds: [
-        {
-          fields: expect.arrayContaining([
-            {
-              inline: false,
-              name: "Failure Details",
-              value: "`missing-user`: Unknown Member",
-            },
-          ]) as unknown[],
-          title: "🛡️ Role Assignment - Partial",
-        },
-      ],
+      flags: 32768,
+      allowedMentions: { parse: [] },
     });
+    expect(messageText(logMessages[1])).toContain("Role Assignment - Partial");
+    expect(messageText(logMessages[1])).toContain("`missing-user`: Unknown Member");
+    expect(messageText(logMessages[1])).toContain("Failure Details");
 
-    const detailCustomId = (
-      logMessages[1] as {
-        components: [{ components: [{ custom_id: string }] }];
-      }
-    ).components[0].components[0].custom_id;
+    const detailCustomId = messageComponents(logMessages[1]).find((c) =>
+      c.custom_id?.startsWith("automationfailures:"),
+    )?.custom_id;
+    expect(detailCustomId).toBeDefined();
     const detailReplies: unknown[] = [];
 
     await replyWithAutomationFailureDetails({
@@ -1923,28 +2449,15 @@ describe("Fullparty webhook server", () => {
     });
     expect(logMessages).toHaveLength(1);
     expect(logMessages[0]).toMatchObject({
-      embeds: [
-        {
-          color: 0x22c55e,
-          description: expect.stringContaining(
-            "**Run #123** • ✅ **Completed**",
-          ) as string,
-          fields: expect.arrayContaining([
-            {
-              inline: true,
-              name: "🧹 Deleted Roles",
-              value: "1 role\ndeleted",
-            },
-            {
-              inline: true,
-              name: "🛡️ Run Role",
-              value: "<@&run-role-id>\n`FullParty: Cloud of Darkness 21:00 UTC`",
-            },
-          ]) as unknown[],
-          title: "🧹 Run Role Cleanup - Complete",
-        },
-      ],
+      flags: 32768,
+      allowedMentions: { parse: [] },
     });
+    expect(messageText(logMessages[0])).toContain("Run Role Cleanup - Success");
+    expect(messageText(logMessages[0])).toContain("Completed");
+    expect(messageText(logMessages[0])).toContain(
+      "FullParty: Cloud of Darkness 21:00 UTC",
+    );
+    expect(messageText(logMessages[0])).toContain("ID: `run-role-id`");
   });
 
   it("deletes the temporary run role when a guild run is cancelled", async () => {
@@ -2072,16 +2585,12 @@ describe("Fullparty webhook server", () => {
     });
     expect(logMessages).toHaveLength(1);
     expect(logMessages[0]).toMatchObject({
-      embeds: [
-        {
-          color: 0x22c55e,
-          description: expect.stringContaining(
-            "**Run #456** • 🚫 **Cancelled**",
-          ) as string,
-          title: "🧹 Run Role Cleanup - Complete",
-        },
-      ],
+      flags: 32768,
+      allowedMentions: { parse: [] },
     });
+    expect(messageText(logMessages[0])).toContain("Run Role Cleanup - Success");
+    expect(messageText(logMessages[0])).toContain("Cancelled");
+    expect(messageText(logMessages[0])).toContain("cancelled-run-role-id");
   });
 
   it("tells server owners when the bot cannot manage roles", async () => {
@@ -2167,21 +2676,13 @@ describe("Fullparty webhook server", () => {
     });
     expect(logMessages).toHaveLength(2);
     expect(logMessages[1]).toMatchObject({
-      embeds: [
-        {
-          color: 0x64748b,
-          fields: expect.arrayContaining([
-            {
-              inline: false,
-              name: "ℹ️ Note",
-              value:
-                "The bot needs the Manage Roles permission to create, delete, and assign run roles.",
-            },
-          ]) as unknown[],
-          title: "🛡️ Role Assignment - Skipped",
-        },
-      ],
+      flags: 32768,
+      allowedMentions: { parse: [] },
     });
+    expect(messageText(logMessages[1])).toContain("Role Assignment - Skipped");
+    expect(messageText(logMessages[1])).toContain(
+      "The bot needs the Manage Roles permission",
+    );
   });
 
   it("returns a Discord guild snapshot in the event response", async () => {
@@ -2500,7 +3001,10 @@ describe("Fullparty webhook server", () => {
             scheduleRefreshEnabled: patch.scheduleRefreshEnabled ?? false,
             scheduleRefreshIntervalDays: patch.scheduleRefreshIntervalDays ?? 1,
             ...(patch.scheduleRefreshChannelId
-              ? { scheduleRefreshChannelId: patch.scheduleRefreshChannelId }
+              ? {
+                  runAnnouncementChannelId: patch.scheduleRefreshChannelId,
+                  scheduleRefreshChannelId: patch.scheduleRefreshChannelId,
+                }
               : {}),
             syncDiscordNamesToFf14: patch.syncDiscordNamesToFf14 ?? false,
           };
@@ -2720,7 +3224,9 @@ describe("Fullparty webhook server", () => {
       {
         guildId: "guild-id",
         patch: {
+          groupSlug: null,
           linkedAt: null,
+          scheduleMode: "disabled",
           scheduleRefreshEnabled: false,
           runRoleTemplateOverrides: [],
         },
@@ -2850,6 +3356,28 @@ type FetchJsonResponse = {
   body: unknown;
   status: number;
 };
+
+function expectV2Message(message: unknown): void {
+  expect(message).toMatchObject({
+    flags: 32768,
+    allowedMentions: { parse: [], repliedUser: false },
+  });
+  expect(message).not.toHaveProperty("content");
+  expect(message).not.toHaveProperty("embeds");
+}
+
+function discordLoginEvent() {
+  return {
+    event: "user.discord_login",
+    data: {
+      user: { id: 123, name: "Example User" },
+      discord_user_id: "234567890123456789",
+      locale: "en",
+      discord_app_install_url: "https://fullparty.gg/auth/discord-app/user/redirect",
+      discord_app_installed: false,
+    },
+  };
+}
 
 type FetchTextResponse = {
   body: string;

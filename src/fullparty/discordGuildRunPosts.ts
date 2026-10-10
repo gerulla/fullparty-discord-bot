@@ -1,5 +1,15 @@
-import type { MessageCreateOptions } from "discord.js";
+import {
+  ButtonStyle,
+  ComponentType,
+  MessageFlags,
+  escapeMarkdown,
+  type APIButtonComponentWithURL,
+  type APIContainerComponent,
+  type APIMessageTopLevelComponent,
+  type APITextDisplayComponent,
+} from "discord.js";
 
+import type { ScheduleFormat } from "../guildSchedule/settings.js";
 import { formatDiscordDateTime } from "../lib/discordTimestamps.js";
 import {
   humanizeIdentifier,
@@ -10,11 +20,22 @@ import {
 const discordMessageLimit = 2000;
 const truncationBuffer = 160;
 
+export type SchedulePostMessage = {
+  content?: string;
+  flags?: MessageFlags.IsComponentsV2;
+  components?: APIMessageTopLevelComponent[];
+  allowedMentions: { parse: []; repliedUser?: false };
+};
+
 export function createGuildUpcomingRunsPostMessage(
   response: unknown,
   fullpartyWebBaseUrl: string,
-): MessageCreateOptions {
+  format: ScheduleFormat = "plain",
+): SchedulePostMessage {
   const runs = extractCollection(response, ["upcoming_runs", "runs", "items", "data"]);
+  if (format === "expanded") {
+    return createExpandedPost(response, runs, fullpartyWebBaseUrl);
+  }
   const group = getGroupInfo(response, runs, fullpartyWebBaseUrl);
 
   if (runs.length === 0) {
@@ -67,6 +88,163 @@ export function createGuildUpcomingRunsPostMessage(
     },
     content: truncateForDiscord(lines.join("\n"), discordMessageLimit),
   };
+}
+
+function createExpandedPost(
+  response: unknown,
+  runs: Record<string, unknown>[],
+  fullpartyWebBaseUrl: string,
+): SchedulePostMessage {
+  const group = getGroupInfo(response, runs, fullpartyWebBaseUrl, safeScheduleUrl);
+  if (group.name) group.name = safeExpandedText(group.name, 120);
+  const components: APIMessageTopLevelComponent[] = [];
+  const footer = createFooter(group);
+  // Leave room for the overflow line and footer. Budget for custom emoji markup
+  // before delivery resolves the icon aliases, including any aliases in run titles.
+  let textBudget = 4000 - expandedTextLength(footer) - 100;
+  let componentBudget = 39;
+
+  for (const run of runs) {
+    const card = createExpandedRunCard(run, fullpartyWebBaseUrl);
+    if (card.textLength > textBudget || card.componentCount > componentBudget) {
+      break;
+    }
+    components.push(card.component);
+    textBudget -= card.textLength;
+    componentBudget -= card.componentCount;
+  }
+
+  const hiddenRunCount = runs.length - components.length;
+  const summary =
+    runs.length === 0
+      ? group.name
+        ? `No upcoming FullParty runs were found for **${group.name}** right now.`
+        : "No upcoming FullParty runs were found right now."
+      : hiddenRunCount > 0
+        ? `...and ${String(hiddenRunCount)} more upcoming ${hiddenRunCount === 1 ? "run" : "runs"}.`
+        : undefined;
+  components.push(expandedText([summary, footer].filter(Boolean).join("\n\n")));
+
+  return {
+    flags: MessageFlags.IsComponentsV2,
+    allowedMentions: { parse: [], repliedUser: false },
+    components,
+  };
+}
+
+function createExpandedRunCard(
+  run: Record<string, unknown>,
+  fullpartyWebBaseUrl: string,
+): { component: APIContainerComponent; componentCount: number; textLength: number } {
+  const title = getRunTitle(run) ?? "Upcoming FullParty run";
+  const target = getTargetProgPoint(run);
+  const heading = `## ${safeExpandedText(target ? `${title} - ${target}` : title, 220)}`;
+  const startsAt = formatDiscordDateTime(getStartsAt(run)) ?? "Time TBD";
+  const runUrl = getRunUrl(run, fullpartyWebBaseUrl);
+  const applyUrl = getApplyUrl(run, fullpartyWebBaseUrl, safeScheduleUrl);
+  const buttons: APIButtonComponentWithURL[] = [];
+  for (const [label, url] of [
+    ["View Run", runUrl],
+    ["Apply Now", applyUrl],
+  ]) {
+    if (url && label) {
+      buttons.push({ type: ComponentType.Button, style: ButtonStyle.Link, label, url });
+    }
+  }
+  const host = getExpandedHostLabel(run);
+  const details = [
+    `:fpclock: **Scheduled Start:** ${startsAt}`,
+    `:fpnametag: ${formatParticipantCount(run)} - ${formatApplicationCount(run).replace(/ Applications$/u, " Application(s)")}`,
+    `:fpatsymbol: Hosted By ${host}`,
+  ].join("\n");
+  const avatarUrl = getHostAvatarUrl(run, fullpartyWebBaseUrl);
+  const component: APIContainerComponent = {
+    type: ComponentType.Container,
+    accent_color: 9917105,
+    components: [
+      expandedText(heading),
+      avatarUrl
+        ? {
+            type: ComponentType.Section,
+            components: [expandedText(details)],
+            accessory: {
+              type: ComponentType.Thumbnail,
+              media: { url: avatarUrl },
+              description: "Host profile picture",
+            },
+          }
+        : expandedText(details),
+    ],
+  };
+  if (buttons.length) {
+    component.components.push({ type: ComponentType.ActionRow, components: buttons });
+  }
+  return {
+    component,
+    componentCount: (avatarUrl ? 5 : 3) + (buttons.length ? 1 + buttons.length : 0),
+    textLength: expandedTextLength(heading) + expandedTextLength(details),
+  };
+}
+
+function expandedText(content: string): APITextDisplayComponent {
+  return { type: ComponentType.TextDisplay, content };
+}
+
+function expandedTextLength(content: string): number {
+  // An animated emoji with a 20-digit snowflake adds 23 characters to :name:.
+  return content.length + (content.match(/:fp[a-z]+:/gu)?.length ?? 0) * 23;
+}
+
+function safeExpandedText(value: string, length: number): string {
+  return truncateForDiscord(
+    escapeMarkdown(value.replace(/\s+/gu, " ").replace(/@/gu, "@\u200b"), {
+      maskedLink: true,
+    }),
+    length,
+  );
+}
+
+function getExpandedHostLabel(run: Record<string, unknown>): string {
+  const host = getHostLabel(run);
+  if (!host) return "Host unavailable";
+  if (host.discordUserId && /^\d{17,20}$/u.test(host.discordUserId)) {
+    return `<@${host.discordUserId}>`;
+  }
+  // Do not render arbitrary text from a malformed Discord ID as mention markup.
+  return host.discordUserId ? "Host unavailable" : safeExpandedText(host.label, 120);
+}
+
+function getHostAvatarUrl(
+  run: Record<string, unknown>,
+  fullpartyWebBaseUrl: string,
+): string | undefined {
+  const host = getRecordValue(run, "host");
+  for (const value of [
+    getStringValueFromKeys(host, ["avatar_url"]),
+    getNestedStringValue(host, "character", ["avatar_url"]),
+  ]) {
+    if (!value) continue;
+    const url = safeScheduleUrl(value, fullpartyWebBaseUrl, 2048);
+    if (url) return url;
+  }
+  return undefined;
+}
+
+function safeScheduleUrl(
+  value: string,
+  fullpartyWebBaseUrl: string,
+  maxLength = 512,
+): string | undefined {
+  try {
+    const url = new URL(value, fullpartyWebBaseUrl);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) {
+      return undefined;
+    }
+    const result = url.toString().replace(/[<>]/gu, (char) => encodeURIComponent(char));
+    return result.length <= maxLength ? result : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function createRunBlock(
@@ -163,6 +341,10 @@ function getGroupInfo(
   response: unknown,
   runs: Record<string, unknown>[],
   fullpartyWebBaseUrl: string,
+  resolveUrl: (
+    value: string,
+    baseUrl: string,
+  ) => string | undefined = resolveFullpartyActionUrl,
 ): GuildPostGroupInfo {
   const meta = getRecordValue(response, "meta");
   const metaGroup = getRecordValue(meta, "group");
@@ -181,9 +363,9 @@ function getGroupInfo(
     getNestedStringValue(firstRunGroup, "urls", ["schedule", "runs", "overview"]);
 
   const scheduleUrl = explicitScheduleUrl
-    ? resolveFullpartyActionUrl(explicitScheduleUrl, fullpartyWebBaseUrl)
+    ? resolveUrl(explicitScheduleUrl, fullpartyWebBaseUrl)
     : slug
-      ? resolveFullpartyActionUrl(
+      ? resolveUrl(
           `/en/groups/${encodeURIComponent(slug)}/dashboard/activities`,
           fullpartyWebBaseUrl,
         )
@@ -272,9 +454,23 @@ function getHostLabel(run: Record<string, unknown>): HostLabel | undefined {
   return hostName ? { label: hostName } : undefined;
 }
 
+function getRunUrl(
+  run: Record<string, unknown>,
+  fullpartyWebBaseUrl: string,
+): string | undefined {
+  const url =
+    getNestedStringValue(run, "urls", ["overview", "run", "activity", "view"]) ??
+    getStringValueFromKeys(run, ["run_url", "activity_url", "url", "link"]);
+  return url ? safeScheduleUrl(url, fullpartyWebBaseUrl) : undefined;
+}
+
 function getApplyUrl(
   run: Record<string, unknown>,
   fullpartyWebBaseUrl: string,
+  resolveUrl: (
+    value: string,
+    baseUrl: string,
+  ) => string | undefined = resolveFullpartyActionUrl,
 ): string | undefined {
   const actionUrl =
     getNestedStringValue(run, "urls", [
@@ -293,9 +489,7 @@ function getApplyUrl(
       "link",
     ]);
 
-  return actionUrl
-    ? resolveFullpartyActionUrl(actionUrl, fullpartyWebBaseUrl)
-    : undefined;
+  return actionUrl ? resolveUrl(actionUrl, fullpartyWebBaseUrl) : undefined;
 }
 
 function extractCollection(

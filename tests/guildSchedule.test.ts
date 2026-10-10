@@ -12,6 +12,7 @@ import { ScheduleRefreshError } from "../src/guildSchedule/publisher.js";
 import { SqliteGuildSettingsStore } from "../src/guildSettings/store.js";
 import { SqliteFailureReporter } from "../src/health/failureReporter.js";
 import { LatestPayloadStore } from "../src/payloads/latestPayloadStore.js";
+import { guildSchedule } from "../src/database/migrations/guildSchedule.js";
 
 const now = new Date("2026-09-11T12:00:00Z");
 const day = 86_400_000;
@@ -91,7 +92,7 @@ describe("persistent guild schedules", () => {
     const legacy = new DatabaseSync(path);
     try {
       legacy.exec("DROP TABLE guild_schedule_refresh");
-      legacy.prepare("DELETE FROM bot_schema_migrations WHERE version = ?").run(7);
+      legacy.exec("DELETE FROM bot_schema_migrations WHERE version IN (7, 11)");
     } finally {
       legacy.close();
     }
@@ -103,6 +104,65 @@ describe("persistent guild schedules", () => {
     await expect(settings.get("guild")).resolves.toMatchObject({
       botLogChannelId: "existing-log-channel",
       linkedAt: now.toISOString(),
+    });
+  });
+
+  it("migrates legacy modes and shares the manual channel while preserving tracked posts", async () => {
+    const { settings, path } = await createFixture();
+    await settings.update("fallback", { linkedAt: now.toISOString() });
+    await settings.update("disabled", { runAnnouncementChannelId: "disabled-manual" });
+    const legacy = new DatabaseSync(path);
+    try {
+      legacy.exec("DROP TABLE guild_schedule_refresh");
+      legacy.prepare("DELETE FROM bot_schema_migrations WHERE version = 11").run();
+      guildSchedule(legacy);
+      legacy
+        .prepare(
+          `INSERT INTO guild_schedule_refresh
+        (guild_id, enabled, channel_id, message_id, message_channel_id, next_refresh_at)
+        VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          "guild",
+          1,
+          "legacy-auto",
+          "previous-post",
+          "legacy-auto",
+          now.toISOString(),
+        );
+      legacy
+        .prepare(
+          `INSERT INTO guild_schedule_refresh
+        (guild_id, enabled, channel_id, next_refresh_at) VALUES (?, ?, ?, ?)`,
+        )
+        .run("fallback", 1, "fallback-auto", now.toISOString());
+      legacy
+        .prepare(
+          `INSERT INTO guild_schedule_refresh
+        (guild_id, enabled, channel_id, next_refresh_at) VALUES (?, ?, ?, ?)`,
+        )
+        .run("disabled", 0, "disabled-auto", now.toISOString());
+    } finally {
+      legacy.close();
+    }
+    const migrated = new SqliteGuildScheduleStore(path);
+    cleanup.push(() => {
+      migrated.close();
+    });
+    expect(migrated.get("guild")).toMatchObject({
+      mode: "timed_refresh",
+      channel_id: "channel",
+      message_id: "previous-post",
+      message_channel_id: "legacy-auto",
+    });
+    await expect(settings.get("fallback")).resolves.toMatchObject({
+      scheduleMode: "timed_refresh",
+      runAnnouncementChannelId: "fallback-auto",
+      scheduleRefreshChannelId: "fallback-auto",
+    });
+    await expect(settings.get("disabled")).resolves.toMatchObject({
+      scheduleMode: "disabled",
+      runAnnouncementChannelId: "disabled-manual",
     });
   });
 
@@ -207,9 +267,179 @@ describe("persistent guild schedules", () => {
       message_channel_id: "channel",
     });
   });
+
+  it("uses one channel for both manual and automatic posts, with the explicit shared field winning", async () => {
+    const { settings, store } = await createFixture();
+    await expect(
+      settings.update("guild", {
+        runAnnouncementChannelId: "shared",
+        scheduleRefreshChannelId: "old-auto",
+      }),
+    ).resolves.toMatchObject({
+      runAnnouncementChannelId: "shared",
+      scheduleRefreshChannelId: "shared",
+    });
+    expect(store.listDue(now)[0]?.channel_id).toBe("shared");
+    await settings.update("guild", { runAnnouncementChannelId: null });
+    expect(store.listDue(now)).toEqual([]);
+    await expect(settings.get("guild")).resolves.not.toHaveProperty(
+      "scheduleRefreshChannelId",
+    );
+  });
+
+  it("preserves detection for legacy enable=true and prioritizes an explicit mode", async () => {
+    const { settings } = await createFixture();
+    await settings.update("guild", { scheduleMode: "run_detection" });
+    await expect(
+      settings.update("guild", { scheduleRefreshEnabled: true }),
+    ).resolves.toMatchObject({
+      scheduleMode: "run_detection",
+      scheduleRefreshEnabled: true,
+    });
+    await expect(
+      settings.update("guild", { scheduleRefreshEnabled: false }),
+    ).resolves.toMatchObject({
+      scheduleMode: "disabled",
+      scheduleRefreshEnabled: false,
+    });
+    await expect(
+      settings.update("guild", {
+        scheduleMode: "run_detection",
+        scheduleRefreshEnabled: false,
+      }),
+    ).resolves.toMatchObject({
+      scheduleMode: "run_detection",
+      scheduleRefreshEnabled: true,
+    });
+  });
+
+  it("remembers an interval set before automatic scheduling is configured", async () => {
+    const { settings } = await createFixture();
+    await settings.update("new-guild", { scheduleRefreshIntervalDays: 7 });
+    await expect(settings.get("new-guild")).resolves.toMatchObject({
+      scheduleMode: "disabled",
+      scheduleRefreshIntervalDays: 7,
+    });
+  });
+});
+
+describe("run detection schedule requests", () => {
+  it("publishes initially, idles across restarts, and queues durable coalesced events", async () => {
+    const { settings, store, path } = await createFixture();
+    await settings.update("guild", { scheduleMode: "run_detection" });
+    const initial = store.listDue(now)[0];
+    if (!initial) throw new Error("Expected initial refresh");
+    store.complete(initial, "initial-post", now);
+    expect(store.listDue(new Date(now.getTime() + 30 * day))).toEqual([]);
+    const reopened = new SqliteGuildScheduleStore(path);
+    cleanup.push(() => {
+      reopened.close();
+    });
+    expect(reopened.listDue(now)).toEqual([]);
+    expect(reopened.requestRunDetectionRefresh("guild", now)).toBe(true);
+    expect(reopened.requestRunDetectionRefresh("guild", now)).toBe(true);
+    expect(store.listDue(now)).toHaveLength(1);
+    expect(store.listDue(now)[0]).toMatchObject({
+      mode: "run_detection",
+      message_id: "initial-post",
+      refresh_pending: 1,
+    });
+  });
+
+  it.each(["timed", "disabled", "unlinked", "no-channel", "unknown"])(
+    "ignores a website hint for a %s guild",
+    async (state) => {
+      const { settings, store } = await createFixture();
+      if (state !== "timed")
+        await settings.update("guild", {
+          scheduleMode: state === "disabled" ? "disabled" : "run_detection",
+          ...(state === "unlinked" ? { linkedAt: null } : {}),
+          ...(state === "no-channel" ? { runAnnouncementChannelId: null } : {}),
+        });
+      expect(
+        store.requestRunDetectionRefresh(state === "unknown" ? "absent" : "guild", now),
+      ).toBe(false);
+    },
+  );
+
+  it("keeps a newer request queued when an older fetch or send finishes", async () => {
+    const { settings, store } = await createFixture();
+    await settings.update("guild", { scheduleMode: "run_detection" });
+    const old = store.listDue(now)[0];
+    if (!old) throw new Error("Expected initial refresh");
+    store.markAttempt(old, now);
+    store.requestRunDetectionRefresh("guild", now);
+    expect(store.isCurrent(old)).toBe(false);
+    store.complete(old, "in-flight-post", now);
+    const latest = store.listDue(now)[0];
+    expect(latest).toMatchObject({
+      refresh_pending: 1,
+      message_id: "in-flight-post",
+      message_channel_id: "channel",
+    });
+    if (!latest) throw new Error("Expected followup refresh");
+    store.complete(latest, "fresh-post", now);
+    expect(store.listDue(new Date(now.getTime() + 30 * day))).toEqual([]);
+  });
+
+  it("does not postpone a newer event when an outdated fetch fails", async () => {
+    const { settings, store } = await createFixture();
+    await settings.update("guild", { scheduleMode: "run_detection" });
+    const old = store.listDue(now)[0];
+    if (!old) throw new Error("Expected job");
+    store.requestRunDetectionRefresh("guild", now);
+    store.fail(old, "old timeout", now);
+    expect(store.listDue(now)).toHaveLength(1);
+    expect(store.get("guild")?.last_error).toBeNull();
+  });
+
+  it("retries failed detection jobs after one hour, then returns to idle", async () => {
+    const { settings, store } = await createFixture();
+    await settings.update("guild", { scheduleMode: "run_detection" });
+    const job = store.listDue(now)[0];
+    if (!job) throw new Error("Expected job");
+    store.fail(job, "timeout", now);
+    expect(store.listDue(now)).toEqual([]);
+    const retryAt = new Date(now.getTime() + 3_600_000);
+    const retry = store.listDue(retryAt)[0];
+    if (!retry) throw new Error("Expected retry");
+    store.complete(retry, "recovered-post", retryAt);
+    expect(store.listDue(new Date(now.getTime() + 30 * day))).toEqual([]);
+  });
+
+  it("saves an irrelevant interval change without waking detection or canceling its pending job", async () => {
+    const { settings, store } = await createFixture();
+    await settings.update("guild", { scheduleMode: "run_detection" });
+    const job = store.listDue(now)[0];
+    if (!job) throw new Error("Expected job");
+    await settings.update("guild", { scheduleRefreshIntervalDays: 7 });
+    expect(store.isCurrent(job)).toBe(true);
+    store.complete(job, "initial-post", now);
+    await settings.update("guild", { scheduleRefreshIntervalDays: 2 });
+    expect(store.listDue(new Date(now.getTime() + 30 * day))).toEqual([]);
+    await expect(settings.get("guild")).resolves.toMatchObject({
+      scheduleRefreshIntervalDays: 2,
+    });
+  });
 });
 
 describe("guild schedule scheduler", () => {
+  it("suppresses the same failure warning across fresh run detection events", async () => {
+    const { scheduler, settings, store, sendLog } = await createFixture();
+    await settings.update("guild", {
+      scheduleMode: "run_detection",
+      botLogChannelId: "log-channel",
+    });
+    const publish = vi.fn(() => Promise.reject(new Error("Upstream timeout")));
+    const worker = scheduler(publish);
+    worker.start();
+    await worker.tick();
+    expect(store.requestRunDetectionRefresh("guild", now)).toBe(true);
+    await worker.tick();
+    expect(publish).toHaveBeenCalledTimes(2);
+    expect(sendLog).toHaveBeenCalledTimes(1);
+  });
+
   it("records an unexpected failure and suppresses repeated identical bot-log warnings", async () => {
     const { scheduler, settings, reporter, sendLog } = await createFixture();
     await settings.update("guild", { botLogChannelId: "log-channel" });

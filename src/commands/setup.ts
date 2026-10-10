@@ -1,35 +1,27 @@
 import {
-  ActionRowBuilder,
   ApplicationIntegrationType,
-  ButtonBuilder,
-  ButtonStyle,
-  ChannelSelectMenuBuilder,
-  ChannelType,
   InteractionContextType,
   MessageFlags,
   PermissionFlagsBits,
-  RoleSelectMenuBuilder,
   SlashCommandBuilder,
 } from "discord.js";
 
-import type { GuildSettings, GuildSettingsPatch } from "../guildSettings/types.js";
+import type { BotContext } from "../bot/context.js";
+import { guildSettingsUrl } from "../discord/linkMessages.js";
+import { buildSetupPanel, type SetupPage } from "../discord/setupMessages.js";
+import { getScheduleMode } from "../guildSchedule/settings.js";
+import {
+  createDefaultGuildSettings,
+  type GuildSettings,
+  type GuildSettingsPatch,
+} from "../guildSettings/types.js";
 import type { ChatInputCommand, SetupComponentInteraction } from "./types.js";
-import { handleScheduleSetup, ScheduleCustomId } from "./scheduleSetup.js";
+import { handleScheduleSetup } from "./scheduleSetup.js";
+import { handleScheduleFormatSetup } from "./scheduleFormatSetup.js";
+import { ScheduleCustomId, SetupCustomId } from "./setupIds.js";
+import { CommandError } from "./commandError.js";
 
 const setupCustomIdPrefix = "setup";
-type SetupActionRow =
-  | ActionRowBuilder<ButtonBuilder>
-  | ActionRowBuilder<ChannelSelectMenuBuilder>
-  | ActionRowBuilder<RoleSelectMenuBuilder>;
-
-const SetupCustomId = {
-  BotLogChannel: "setup:bot_log_channel",
-  BotModeratorRole: "setup:bot_moderator_role",
-  NameSyncDisabled: "setup:name_sync:disabled",
-  NameSyncEnabled: "setup:name_sync:enabled",
-  RunAnnouncementChannel: "setup:run_announcement_channel",
-  UpcomingRaiderRole: "setup:upcoming_raider_role",
-} as const;
 
 export const setupCommand: ChatInputCommand = {
   componentCustomIdPrefix: setupCustomIdPrefix,
@@ -39,19 +31,14 @@ export const setupCommand: ChatInputCommand = {
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setIntegrationTypes(ApplicationIntegrationType.GuildInstall)
     .setContexts(InteractionContextType.Guild),
-  async execute(interaction, context) {
+  async execute(interaction) {
     const guildId = await getManageableGuildId(interaction);
 
     if (!guildId) {
       return;
     }
 
-    const settings = await context.guildSettings.get(guildId);
-
-    await interaction.reply({
-      ...buildSetupPanel(settings),
-      flags: MessageFlags.Ephemeral,
-    });
+    await interaction.reply(buildSetupPanel(createDefaultGuildSettings(guildId)));
   },
   async handleComponent(interaction, context) {
     const guildId = await getManageableGuildId(interaction);
@@ -60,113 +47,99 @@ export const setupCommand: ChatInputCommand = {
       return;
     }
 
-    if (interaction.customId === ScheduleCustomId.Back) {
-      await interaction.update(buildSetupPanel(await context.guildSettings.get(guildId)));
+    await interaction.deferUpdate();
+
+    if (interaction.customId.startsWith(ScheduleCustomId.FormatPrefix)) {
+      await handleScheduleFormatSetup(interaction, context, guildId);
       return;
     }
-    if (interaction.customId.startsWith("setup:schedule:")) {
-      await handleScheduleSetup(interaction, context, guildId, (patch) =>
-        createSetupPreflightWarning(interaction, patch),
+
+    if (interaction.isButton() && interaction.customId === SetupCustomId.Home) {
+      await interaction.editReply({
+        ...buildSetupPanel(createDefaultGuildSettings(guildId)),
+        content: null,
+        embeds: [],
+      });
+      return;
+    }
+    if (
+      interaction.customId.startsWith("setup:schedule:") ||
+      interaction.customId === SetupCustomId.ScheduleChannel ||
+      interaction.customId === SetupCustomId.LegacyRunAnnouncementChannel
+    ) {
+      await handleScheduleSetup(interaction, context, guildId, (patch, settings) =>
+        createSetupPreflightWarning(interaction, patch, settings),
       );
+      return;
+    }
+
+    const page = getSetupPage(interaction);
+    if (page) {
+      const settings = await context.guildSettings.get(guildId);
+      await interaction.editReply({
+        ...buildSetupPanel(settings, page, panelOptions(context, settings, page)),
+        content: null,
+        embeds: [],
+      });
       return;
     }
 
     const patch = getSettingsPatch(interaction);
     const preflightWarning = await createSetupPreflightWarning(interaction, patch);
     const settings = await context.guildSettings.update(guildId, patch);
+    const updatedPage = getPageForPatch(patch);
 
-    await interaction.update(buildSetupPanel(settings, preflightWarning));
+    await interaction.editReply({
+      ...buildSetupPanel(
+        settings,
+        updatedPage,
+        panelOptions(context, settings, updatedPage, preflightWarning),
+      ),
+      content: null,
+      embeds: [],
+    });
   },
 };
 
-function buildSetupPanel(
+function panelOptions(
+  context: BotContext,
   settings: GuildSettings,
-  preflightWarning?: string,
-): {
-  components: SetupActionRow[];
-  content: string;
-} {
+  page: SetupPage,
+  warning?: string,
+) {
   return {
-    components: buildSetupComponents(settings),
-    content: [
-      "**FullParty Server Setup**",
-      "",
-      "1. Bot-log channel: " + formatChannel(settings.botLogChannelId),
-      "2. Member-Facing Channel: " + formatChannel(settings.runAnnouncementChannelId),
-      "3. Template Role: " + formatRole(settings.upcomingRaiderRoleId),
-      "4. Bot moderator role: " + formatRole(settings.botModeratorRoleId),
-      "5. Sync Discord names to FF14 character names: " +
-        formatEnabled(settings.syncDiscordNamesToFf14),
-      "6. Automatic schedule: " + formatEnabled(settings.scheduleRefreshEnabled ?? false),
-      "",
-      "**Template Role Overrides:**",
-      formatTemplateRoleOverrides(settings),
-      preflightWarning ? `\n${preflightWarning}` : undefined,
-      "",
-      "Use the controls below from top to bottom. Changes save immediately.",
-    ]
-      .filter((line): line is string => line !== undefined)
-      .join("\n"),
+    warning,
+    scheduleState:
+      page === "schedule" ? context.guildScheduleStore?.get(settings.guildId) : undefined,
+    botSettingsUrl:
+      page === "roles"
+        ? guildSettingsUrl({
+            groupSlug: settings.groupSlug,
+            fullpartyWebBaseUrl: context.fullpartyWebBaseUrl,
+          })
+        : undefined,
   };
 }
 
-function buildSetupComponents(settings: GuildSettings): SetupActionRow[] {
-  const botLogChannelRow = new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(
-    new ChannelSelectMenuBuilder()
-      .setCustomId(SetupCustomId.BotLogChannel)
-      .setPlaceholder("1. Choose bot-log channel")
-      .setMinValues(1)
-      .setMaxValues(1)
-      .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement),
-  );
-  const runAnnouncementChannelRow =
-    new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(
-      new ChannelSelectMenuBuilder()
-        .setCustomId(SetupCustomId.RunAnnouncementChannel)
-        .setPlaceholder("2. Choose Member-Facing Channel")
-        .setMinValues(1)
-        .setMaxValues(1)
-        .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement),
-    );
-  const upcomingRaiderRoleRow =
-    new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(
-      new RoleSelectMenuBuilder()
-        .setCustomId(SetupCustomId.UpcomingRaiderRole)
-        .setPlaceholder("3. Choose Template Role")
-        .setMinValues(1)
-        .setMaxValues(1),
-    );
-  const botModeratorRoleRow = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(
-    new RoleSelectMenuBuilder()
-      .setCustomId(SetupCustomId.BotModeratorRole)
-      .setPlaceholder("4. Choose bot moderator role")
-      .setMinValues(1)
-      .setMaxValues(1),
-  );
-  const nameSyncRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId(SetupCustomId.NameSyncEnabled)
-      .setLabel("Enable name sync")
-      .setStyle(ButtonStyle.Success)
-      .setDisabled(settings.syncDiscordNamesToFf14),
-    new ButtonBuilder()
-      .setCustomId(SetupCustomId.NameSyncDisabled)
-      .setLabel("Disable name sync")
-      .setStyle(ButtonStyle.Secondary)
-      .setDisabled(!settings.syncDiscordNamesToFf14),
-    new ButtonBuilder()
-      .setCustomId(ScheduleCustomId.Open)
-      .setLabel("Automatic schedule")
-      .setStyle(ButtonStyle.Secondary),
-  );
+function getSetupPage(interaction: SetupComponentInteraction): SetupPage | undefined {
+  if (!interaction.isButton()) return undefined;
+  switch (interaction.customId) {
+    case SetupCustomId.BotSettings:
+      return "bot";
+    case SetupCustomId.RoleTemplates:
+      return "roles";
+    case SetupCustomId.NicknameSync:
+      return "nickname";
+    default:
+      return undefined;
+  }
+}
 
-  return [
-    botLogChannelRow,
-    runAnnouncementChannelRow,
-    upcomingRaiderRoleRow,
-    botModeratorRoleRow,
-    nameSyncRow,
-  ];
+function getPageForPatch(patch: GuildSettingsPatch): SetupPage {
+  if (patch.runAnnouncementChannelId !== undefined) return "schedule";
+  if (patch.upcomingRaiderRoleId !== undefined) return "roles";
+  if (patch.syncDiscordNamesToFf14 !== undefined) return "nickname";
+  return "bot";
 }
 
 function getSettingsPatch(interaction: SetupComponentInteraction): GuildSettingsPatch {
@@ -179,10 +152,6 @@ function getSettingsPatch(interaction: SetupComponentInteraction): GuildSettings
 
     if (interaction.customId === SetupCustomId.BotLogChannel) {
       return { botLogChannelId: selectedChannelId };
-    }
-
-    if (interaction.customId === SetupCustomId.RunAnnouncementChannel) {
-      return { runAnnouncementChannelId: selectedChannelId };
     }
   }
 
@@ -212,49 +181,47 @@ function getSettingsPatch(interaction: SetupComponentInteraction): GuildSettings
     }
   }
 
-  throw new Error(`Unsupported setup component: ${interaction.customId}`);
+  throw new CommandError(
+    "That setup control is no longer available. Run /setup again.",
+    "setup_control_invalid",
+  );
 }
 
 async function createSetupPreflightWarning(
   interaction: SetupComponentInteraction,
   patch: GuildSettingsPatch,
+  settings?: GuildSettings,
 ): Promise<string | undefined> {
-  if (!interaction.isChannelSelectMenu()) {
-    return undefined;
-  }
+  const enablingSchedule = patch.scheduleMode && patch.scheduleMode !== "disabled";
+  if (!interaction.isChannelSelectMenu() && !enablingSchedule) return undefined;
 
   const channelId =
     patch.botLogChannelId ??
     patch.runAnnouncementChannelId ??
-    patch.scheduleRefreshChannelId;
+    (enablingSchedule ? settings?.runAnnouncementChannelId : undefined);
 
   if (!channelId) {
     return undefined;
   }
 
-  const channelLabel = patch.botLogChannelId
-    ? "Bot-log channel"
-    : patch.scheduleRefreshChannelId
-      ? "Automatic schedule channel"
-      : "Member-Facing Channel";
+  const channelLabel = patch.botLogChannelId ? "Bot-log channel" : "Schedule Channel";
   const channel = await resolveSelectedChannel(interaction, channelId);
 
   if (!channel) {
     return `⚠️ ${channelLabel} preflight: I could not inspect <#${channelId}>. Make sure I can view and send messages there.`;
   }
 
-  const missingPermissions = patch.scheduleRefreshChannelId
-    ? [
-        { bit: PermissionFlagsBits.ViewChannel, label: "View Channel" },
-        { bit: PermissionFlagsBits.SendMessages, label: "Send Messages" },
-        { bit: PermissionFlagsBits.ReadMessageHistory, label: "Read Message History" },
-      ]
-        .filter(
-          (permission) =>
-            !getBotChannelPermissions(interaction, channel)?.has(permission.bit),
-        )
-        .map((permission) => permission.label)
-    : getMissingChannelSendPermissions(interaction, channel);
+  const missingPermissions = getMissingChannelSendPermissions(interaction, channel);
+  const mode = patch.scheduleMode ?? (settings ? getScheduleMode(settings) : "disabled");
+  if (
+    !patch.botLogChannelId &&
+    mode !== "disabled" &&
+    !getBotChannelPermissions(interaction, channel)?.has(
+      PermissionFlagsBits.ReadMessageHistory,
+    )
+  ) {
+    missingPermissions.push("Read Message History");
+  }
 
   if (missingPermissions.length === 0) {
     return undefined;
@@ -346,33 +313,6 @@ async function getManageableGuildId(
   }
 
   return interaction.guildId;
-}
-
-function formatChannel(channelId: string | undefined): string {
-  return channelId ? `<#${channelId}>` : "_Not set_";
-}
-
-function formatRole(roleId: string | undefined): string {
-  return roleId ? `<@&${roleId}>` : "_Not set_";
-}
-
-function formatTemplateRoleOverrides(settings: GuildSettings): string {
-  const overrides = settings.runRoleTemplateOverrides ?? [];
-
-  if (overrides.length === 0) {
-    return "_None configured_";
-  }
-
-  return overrides
-    .map(
-      (override) =>
-        `${formatRole(override.roleId)} - ${override.activityName} (${String(override.activityId)})`,
-    )
-    .join("\n");
-}
-
-function formatEnabled(value: boolean): string {
-  return value ? "Enabled" : "Disabled";
 }
 
 type PermissionLookup = {

@@ -40,11 +40,24 @@ const resourceComponentSchema = z.object({
     .max(5),
 });
 
+const resourceListEmbedSchema = z.object({
+  title: z.string().nullish(),
+  author: z.object({ name: z.string() }).nullish(),
+});
+
 export const resourceListResponseSchema = z.object({
   data: z
-    .array(z.object({ command_name: text(100), title: z.string().nullable() }))
+    .array(
+      z.object({
+        command_name: text(100),
+        title: z.string().nullish(),
+        embed_title: z.string().nullish(),
+        resource_title: z.string().nullish(),
+        embed: resourceListEmbedSchema.nullish(),
+      }),
+    )
     .max(100),
-  // Leave a Discord action row available for the bot's pagination controls.
+  // Website-authored list links are rendered compactly below the V2 list.
   components: z.array(resourceComponentSchema).max(4).default([]),
   meta: z.object({
     group_id: z.number().int().positive(),
@@ -93,6 +106,8 @@ export const resourceLookupResponseSchema = z.discriminatedUnion("found", [
 ]);
 
 export type ResourceListResponse = z.infer<typeof resourceListResponseSchema>;
+export type ResourceListItem = ResourceListResponse["data"][number];
+export type ResourceListEmbed = z.infer<typeof resourceListEmbedSchema>;
 export type ResourceLookupResponse = z.infer<typeof resourceLookupResponseSchema>;
 export type ResourceComponents = z.infer<typeof resourceComponentSchema>[];
 export type ResourceData = z.infer<typeof resourceResponseSchema>["data"];

@@ -200,12 +200,14 @@ describe("createInteractionHandler", () => {
       }),
     );
 
-    expect(reply.calls).toEqual([
+    expect(reply.calls).toMatchObject([
       [
         {
-          content:
-            "Your Discord account is not linked to FullParty yet.\n\nOpen https://fullparty.gg, go to your user settings, and generate a Discord link code.\n\nThen come back here and run `/link token:<code>` to connect your account.",
-          flags: MessageFlags.Ephemeral,
+          flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
+          allowedMentions: { parse: [], repliedUser: false },
+          components: [
+            { type: 10, content: expect.stringContaining("`/link`") as string },
+          ],
         },
       ],
     ]);
@@ -230,16 +232,62 @@ describe("createInteractionHandler", () => {
       }),
     );
 
-    expect(reply.calls).toEqual([
+    expect(reply.calls).toMatchObject([
       [
         {
-          content:
-            "Your Discord account is not linked to FullParty yet.\n\nOpen https://fullparty.gg, go to your user settings, and generate a Discord link code.\n\nThen come back here and run `/link token:<code>` to connect your account.",
-          flags: MessageFlags.Ephemeral,
+          flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
+          allowedMentions: { parse: [], repliedUser: false },
+          components: [
+            { type: 10, content: expect.stringContaining("`/link`") as string },
+          ],
         },
       ],
     ]);
   });
+
+  it.each([
+    { component: false, deferred: false, replied: false, response: "reply" },
+    { component: false, deferred: true, replied: false, response: "editReply" },
+    { component: false, deferred: false, replied: true, response: "followUp" },
+    { component: true, deferred: false, replied: false, response: "reply" },
+    { component: true, deferred: true, replied: false, response: "followUp" },
+    { component: true, deferred: false, replied: true, response: "followUp" },
+  ] as const)(
+    "sends V2 link guidance using the correct interaction response: %j",
+    async (state) => {
+      const error = new FullpartyApiError("Discord user not linked", 404, {});
+      const command = createCommand("known", () => Promise.reject(error));
+      command.componentCustomIdPrefix = "setup";
+      command.handleComponent = () => Promise.reject(error);
+      const handler = createInteractionHandler(createContext(), [command]);
+      const reply = vi.fn().mockResolvedValue(undefined);
+      const editReply = vi.fn().mockResolvedValue(undefined);
+      const followUp = vi.fn().mockResolvedValue(undefined);
+      const options = { ...state, reply, editReply, followUp };
+      await handler(
+        state.component
+          ? createComponentInteraction(options)
+          : createInteraction(options),
+      );
+      const responses = { reply, editReply, followUp };
+      expect(responses[state.response]).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          flags:
+            state.response === "editReply"
+              ? MessageFlags.IsComponentsV2
+              : MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+          allowedMentions: { parse: [], repliedUser: false },
+          components: [
+            { type: 10, content: expect.stringContaining("`/link`") as string },
+          ],
+          ...(state.response === "editReply" ? { content: null, embeds: [] } : {}),
+        }),
+      );
+      for (const name of ["reply", "editReply", "followUp"] as const) {
+        if (name !== state.response) expect(responses[name]).not.toHaveBeenCalled();
+      }
+    },
+  );
 
   it("does not treat missing FullParty routes as unlinked accounts", async () => {
     const context = createContext();

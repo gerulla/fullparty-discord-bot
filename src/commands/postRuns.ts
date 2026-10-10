@@ -8,6 +8,7 @@ import {
 
 import { captureFullpartyCommandPayload } from "../fullparty/commandPayloadCapture.js";
 import { createGuildUpcomingRunsPostMessage } from "../fullparty/discordGuildRunPosts.js";
+import { resolveV2MessageIcons } from "../discord/v2.js";
 import { requireGuildBotModerator } from "./guildCommandAccess.js";
 import type { ChatInputCommand } from "./types.js";
 
@@ -23,7 +24,7 @@ export const postRunsCommand: ChatInputCommand = {
       option
         .setName("posthere")
         .setDescription(
-          "Post in this channel instead of the configured Member-Facing Channel.",
+          "Post in this channel instead of the configured Schedule Channel.",
         ),
     ),
   async execute(interaction, context) {
@@ -59,14 +60,14 @@ export const postRunsCommand: ChatInputCommand = {
             settings.runAnnouncementChannelId,
           );
     } catch (error) {
-      context.logger.warn("Unable to inspect member-facing channel for postruns.", {
+      context.logger.warn("Unable to inspect schedule channel for postruns.", {
         channelId: settings.runAnnouncementChannelId,
         error,
         guildId,
       });
       await interaction.reply({
         content:
-          "I could not inspect the configured Member-Facing Channel. Check that I can view it, or run `/postruns posthere:true` somewhere I can post.",
+          "I could not inspect the configured Schedule Channel. Check that I can view it, or run `/postruns posthere:true` somewhere I can post.",
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -75,7 +76,7 @@ export const postRunsCommand: ChatInputCommand = {
     if (!target.channelId) {
       await interaction.reply({
         content:
-          "No Member-Facing Channel is configured yet. Run `/setup` and choose one, or run `/postruns posthere:true` to post in this channel.",
+          "No Schedule Channel is configured yet. Run `/setup` and choose one, or run `/postruns posthere:true` to post in this channel.",
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -102,7 +103,11 @@ export const postRunsCommand: ChatInputCommand = {
           context.fullparty.getDiscordGuildUpcomingRuns(guildId, { limit: defaultLimit }),
       });
 
-      message = createGuildUpcomingRunsPostMessage(runs, context.fullpartyWebBaseUrl);
+      message = createGuildUpcomingRunsPostMessage(
+        runs,
+        context.fullpartyWebBaseUrl,
+        settings.scheduleFormat,
+      );
     } catch (error) {
       context.logger.warn("Unable to fetch FullParty runs for public post.", {
         error,
@@ -116,7 +121,7 @@ export const postRunsCommand: ChatInputCommand = {
     }
 
     try {
-      await target.channel.send(message);
+      await target.channel.send(resolveV2MessageIcons(message, interaction.client));
     } catch (error) {
       context.logger.warn("Unable to post upcoming runs message.", {
         channelId: target.channelId,

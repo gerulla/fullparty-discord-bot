@@ -149,6 +149,8 @@ describe("admin report event", () => {
     await f.waitForDelivery();
     expect(f.fetchUser).toHaveBeenCalledExactlyOnceWith(ownerId);
     expect(f.send).toHaveBeenCalledExactlyOnceWith({
+      nonce: expect.any(String) as string,
+      enforceNonce: true,
       embeds: [
         {
           title: report.title,
@@ -254,10 +256,10 @@ describe("admin report event", () => {
 
   it("queues a burst after the existing per-user DM allowance", async () => {
     const f = await fixture();
-    await f.post();
-    await f.waitForDelivery();
-    await f.post();
-    await f.waitForDelivery(2);
+    for (let count = 1; count <= 5; count++) {
+      await f.post();
+      await f.waitForDelivery(count);
+    }
     await expect(f.post()).resolves.toMatchObject({
       status: 200,
       body: {
@@ -269,7 +271,7 @@ describe("admin report event", () => {
         },
       },
     });
-    expect(f.send).toHaveBeenCalledTimes(2);
+    expect(f.send).toHaveBeenCalledTimes(5);
     expect(f.dmStore.pending()).toHaveLength(1);
   });
 

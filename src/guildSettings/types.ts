@@ -1,11 +1,18 @@
+import type { ScheduleFormat, ScheduleMode } from "../guildSchedule/settings.js";
+
 export type GuildSettings = {
   botLogChannelId?: string;
   botModeratorRoleId?: string;
   guildId: string;
+  groupSlug?: string;
   linkedAt?: string;
   runRoleTemplateOverrides?: GuildRoleTemplateOverride[];
   runAnnouncementChannelId?: string;
+  scheduleFormat?: ScheduleFormat;
+  scheduleMode?: ScheduleMode;
+  /** Compatibility alias: true for either automatic schedule mode. */
   scheduleRefreshEnabled?: boolean;
+  /** Compatibility alias for runAnnouncementChannelId. */
   scheduleRefreshChannelId?: string;
   scheduleRefreshIntervalDays?: number;
   syncDiscordNamesToFf14: boolean;
@@ -24,9 +31,12 @@ export type GuildRoleTemplateOverride = {
 export type GuildSettingsPatch = {
   botLogChannelId?: string | null;
   botModeratorRoleId?: string | null;
+  groupSlug?: string | null;
   linkedAt?: string | null;
   runRoleTemplateOverrides?: GuildRoleTemplateOverride[];
   runAnnouncementChannelId?: string | null;
+  scheduleFormat?: ScheduleFormat;
+  scheduleMode?: ScheduleMode;
   scheduleRefreshEnabled?: boolean;
   scheduleRefreshChannelId?: string | null;
   scheduleRefreshIntervalDays?: number;

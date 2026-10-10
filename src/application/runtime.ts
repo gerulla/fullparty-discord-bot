@@ -78,6 +78,7 @@ export async function startApplication(
     const context: BotContext = {
       adminApiToken: adminToken.value,
       adminStore,
+      developmentJsonEnabled: config.DEV_JSON_ENABLED,
       failureReporter,
       guildSettings,
       guildScheduleStore,
@@ -120,6 +121,10 @@ export async function startApplication(
       databasePath: config.DATABASE_PATH,
       failureReporter,
       logger,
+      onFirstAttempt: (job) =>
+        job.kind === "run_reminder"
+          ? automation.notifyStarted(job.data)
+          : Promise.resolve(),
       pollIntervalMs: config.GUILD_AUTOMATION_QUEUE_POLL_INTERVAL_MS,
       processor: (job) =>
         job.kind === "run_reminder"

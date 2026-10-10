@@ -10,11 +10,14 @@ import { describe, expect, it, vi } from "vitest";
 import { FullpartyApiClient } from "../src/fullparty/client.js";
 import { GuildSchedulePublisher } from "../src/guildSchedule/publisher.js";
 import type { ScheduleJob } from "../src/guildSchedule/store.js";
+import { messageText } from "./helpers/messages.js";
 
 function fixture() {
   const job: ScheduleJob = {
     guild_id: "guild",
     enabled: 1,
+    mode: "timed_refresh",
+    refresh_pending: 1,
     channel_id: "channel",
     interval_days: 1,
     revision: 1,
@@ -25,6 +28,7 @@ function fixture() {
     last_attempt_at: null,
     last_error: null,
     linked_at: "2026-09-01T12:00:00Z",
+    schedule_format: "plain",
   };
   const order: string[] = [];
   const previous = {
@@ -58,7 +62,17 @@ function fixture() {
   const fetchChannel = vi.fn<(id: string) => Promise<typeof channel>>(() =>
     Promise.resolve(channel),
   );
-  const client = { user: { id: "bot" }, channels: { fetch: fetchChannel } };
+  const client = {
+    user: { id: "bot" },
+    channels: { fetch: fetchChannel },
+    application: {
+      emojis: {
+        cache: new Map([
+          ["123456789012345678", { id: "123456789012345678", name: "fpclock" }],
+        ]),
+      },
+    },
+  };
   const fetcher = vi.fn<typeof fetch>(() => {
     order.push("fetch schedule");
     return Promise.resolve(
@@ -123,6 +137,45 @@ describe("automatic schedule publishing", () => {
     expect(f.clearMessage).not.toHaveBeenCalled();
     expect(f.send).toHaveBeenCalledTimes(1);
   });
+
+  it.each(["timed_refresh", "run_detection"] as const)(
+    "publishes Expanded %s schedules with V2 and silent flags intact",
+    async (mode) => {
+      const f = fixture();
+      f.fetcher.mockResolvedValue(
+        Response.json({
+          data: [
+            {
+              title: "Expanded run",
+              starts_at: "2026-10-22T17:00:00Z",
+              counts: { assigned_slots: 3, total_slots: 48, total_applicants: 1 },
+              host: {
+                discord_user_id: "800000000000000001",
+                character: { avatar_url: "https://example.com/host.png" },
+              },
+              urls: { application: "/groups/example/activities/1/application" },
+            },
+          ],
+        }),
+      );
+      await f.publisher.replace(
+        { ...f.job, mode, schedule_format: "expanded" },
+        () => true,
+      );
+      const sent = f.send.mock.calls[0]?.[0];
+      expect(sent).toMatchObject({
+        flags: MessageFlags.IsComponentsV2 | MessageFlags.SuppressNotifications,
+        allowedMentions: { parse: [] },
+      });
+      expect(sent).not.toHaveProperty("content");
+      expect(sent).not.toHaveProperty("embeds");
+      expect(messageText(sent)).toContain("## Expanded run");
+      expect(messageText(sent)).toContain("<:fpclock:123456789012345678>");
+      expect(messageText(sent)).not.toContain(":fpnametag:");
+      expect(JSON.stringify(sent?.components)).toContain("https://example.com/host.png");
+      expect(f.order).toEqual(["delete", "forget old", "send"]);
+    },
+  );
 
   it("uses the full existing /postruns formatter", async () => {
     const f = fixture();

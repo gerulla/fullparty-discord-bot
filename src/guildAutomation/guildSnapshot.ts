@@ -9,6 +9,11 @@ import {
 
 import type { BotContext } from "../bot/context.js";
 import type { GuildSettings } from "../guildSettings/types.js";
+import {
+  getScheduleMode,
+  type ScheduleFormat,
+  type ScheduleMode,
+} from "../guildSchedule/settings.js";
 
 export type DiscordGuildSnapshot = {
   available_options: DiscordGuildSnapshotAvailableOptions;
@@ -100,6 +105,8 @@ export type DiscordGuildSnapshotSettings = {
   run_announcement_channel_id: string | null;
   run_role_template_id: string | null;
   sync_discord_names_to_ff14: boolean;
+  schedule_mode: ScheduleMode;
+  schedule_format: ScheduleFormat;
   schedule_refresh_enabled: boolean;
   schedule_refresh_channel_id: string | null;
   schedule_refresh_interval_days: number;
@@ -150,8 +157,10 @@ export function serializeGuildSettings(
     bot_log_channel_id: settings.botLogChannelId ?? null,
     bot_moderator_role_id: settings.botModeratorRoleId ?? null,
     linked_at: settings.linkedAt ?? null,
-    schedule_refresh_enabled: settings.scheduleRefreshEnabled ?? false,
-    schedule_refresh_channel_id: settings.scheduleRefreshChannelId ?? null,
+    schedule_mode: getScheduleMode(settings),
+    schedule_format: settings.scheduleFormat ?? "plain",
+    schedule_refresh_enabled: getScheduleMode(settings) !== "disabled",
+    schedule_refresh_channel_id: settings.runAnnouncementChannelId ?? null,
     schedule_refresh_interval_days: settings.scheduleRefreshIntervalDays ?? 1,
     run_role_template_overrides: (settings.runRoleTemplateOverrides ?? []).map(
       (override) => ({

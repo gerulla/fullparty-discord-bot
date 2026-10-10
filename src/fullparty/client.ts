@@ -147,6 +147,7 @@ export class FullpartyApiClient {
     commandName: string,
     page = 1,
     perPage = 25,
+    options: { signal?: AbortSignal } = {},
   ): Promise<unknown> {
     if (!commandName.trim() || commandName === "." || commandName === "..") {
       throw new Error("Invalid resource command name.");
@@ -155,6 +156,7 @@ export class FullpartyApiClient {
       `${botIntegrationPath}/resources/${encodeURIComponent(commandName)}`,
       {
         method: "POST",
+        ...options,
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           discord_guild_id: discordGuildId,
@@ -242,6 +244,9 @@ export class FullpartyApiClient {
     }
 
     const controller = new AbortController();
+    const signal = init.signal
+      ? AbortSignal.any([controller.signal, init.signal])
+      : controller.signal;
     const timeout = setTimeout(() => {
       controller.abort();
     }, this.timeoutMs);
@@ -250,7 +255,7 @@ export class FullpartyApiClient {
         ...init,
         headers,
         redirect: "error",
-        signal: controller.signal,
+        signal,
       });
 
       if (!response.ok) {
@@ -270,12 +275,12 @@ export class FullpartyApiClient {
       )
         throw error;
       throw new FullpartyTransportError(
-        controller.signal.aborted
+        signal.aborted
           ? "FullParty API request timed out."
           : error instanceof SyntaxError
             ? "FullParty API returned malformed JSON."
             : "Unable to reach the FullParty API.",
-        controller.signal.aborted
+        signal.aborted
           ? "timeout"
           : error instanceof SyntaxError
             ? "invalid_response"
