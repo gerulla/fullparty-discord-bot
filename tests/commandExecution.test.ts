@@ -101,10 +101,11 @@ describe("command execution", () => {
     expect(message).not.toHaveProperty("flags");
     expect(message.content).toContain("**FullParty Help · Direct Messages**");
     expect(message.content).toContain("**DM commands**");
-    for (const command of ["/link", "/runs", "/applications", "/faq", "/ping", "/help"]) {
+    for (const command of ["/link", "/runs", "/applications", "/ping", "/help"]) {
       expect(message.content).toContain(`\`${command}`);
     }
     for (const command of [
+      "/faq",
       "/info",
       "/setup",
       "/guildruns",
@@ -258,9 +259,11 @@ describe("command execution", () => {
       expect(content?.includes("**Admin commands**")).toBe(
         canModerate || canManageServer || canManageRoles,
       );
-      for (const command of ["/info", "/faq", "/ping", "/help"]) {
+      for (const command of ["/info", "/help"]) {
         expect(content).toContain(`\`${command}`);
       }
+      expect(content).not.toContain("`/faq");
+      expect(content).not.toContain("`/ping");
       for (const command of [
         "/guildruns",
         "/postruns",

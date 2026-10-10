@@ -2,7 +2,7 @@ import { ApplicationIntegrationType, InteractionContextType } from "discord.js";
 import { describe, expect, it } from "vitest";
 
 import { formatHealthResponse } from "../src/commands/fullparty.js";
-import { getCommandData } from "../src/commands/index.js";
+import { getCommandData, getCommandMap } from "../src/commands/index.js";
 
 describe("commands", () => {
   it("registers command metadata for the intended install contexts", () => {
@@ -13,7 +13,6 @@ describe("commands", () => {
       "assignrunrole",
       "clearrole",
       "debugassignrunrole",
-      "faq",
       "guildruns",
       "help",
       "info",
@@ -32,7 +31,6 @@ describe("commands", () => {
     const debugassignrunrole = commands.find(
       (command) => command.name === "debugassignrunrole",
     );
-    const faq = commands.find((command) => command.name === "faq");
     const guildruns = commands.find((command) => command.name === "guildruns");
     const help = commands.find((command) => command.name === "help");
     const info = commands.find((command) => command.name === "info");
@@ -47,7 +45,7 @@ describe("commands", () => {
     expect(assignrunrole).toBeDefined();
     expect(clearrole).toBeDefined();
     expect(debugassignrunrole).toBeDefined();
-    expect(faq).toBeDefined();
+    expect(getCommandMap().has("faq")).toBe(false);
     expect(guildruns).toBeDefined();
     expect(help).toBeDefined();
     expect(info).toMatchObject({
@@ -67,7 +65,6 @@ describe("commands", () => {
       !assignrunrole ||
       !clearrole ||
       !debugassignrunrole ||
-      !faq ||
       !guildruns ||
       !help ||
       !link ||
@@ -78,7 +75,7 @@ describe("commands", () => {
       !setup
     ) {
       throw new Error(
-        "Expected applications, assignrunrole, clearrole, debugassignrunrole, faq, guildruns, help, link, ping, postruns, payload, runs, and setup commands to be registered.",
+        "Expected applications, assignrunrole, clearrole, debugassignrunrole, guildruns, help, link, ping, postruns, payload, runs, and setup commands to be registered.",
       );
     }
 
@@ -125,17 +122,6 @@ describe("commands", () => {
       ]),
     );
     expect(help.contexts).toEqual([
-      InteractionContextType.Guild,
-      InteractionContextType.BotDM,
-      InteractionContextType.PrivateChannel,
-    ]);
-    expect(faq.integration_types).toEqual(
-      expect.arrayContaining([
-        ApplicationIntegrationType.GuildInstall,
-        ApplicationIntegrationType.UserInstall,
-      ]),
-    );
-    expect(faq.contexts).toEqual([
       InteractionContextType.Guild,
       InteractionContextType.BotDM,
       InteractionContextType.PrivateChannel,

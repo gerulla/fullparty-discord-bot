@@ -79,6 +79,7 @@ function createHelpMessage(
       "`/link` - Connect your FullParty account with automated setup or a link token.",
       "`/runs` - View your upcoming runs. Linked account required.",
       "`/applications` - View your applications. Linked account required.",
+      "`/ping` - Check whether the bot is responsive.",
       ...commonCommands,
     ].join("\n");
   }
@@ -123,8 +124,4 @@ function createHelpMessage(
   ].join("\n");
 }
 
-const commonCommands = [
-  "`/faq` - Learn about template roles, moderator access and configured channels.",
-  "`/ping` - Check whether the bot is responsive.",
-  "`/help` - Show commands available to you here.",
-];
+const commonCommands = ["`/help` - Show commands available to you here."];

@@ -3,7 +3,6 @@ import type { RESTPostAPIChatInputApplicationCommandsJSONBody } from "discord.js
 import { applicationsCommand } from "./applications.js";
 import { assignRunRoleCommand, debugAssignRunRoleCommand } from "./assignRunRole.js";
 import { clearRoleCommand } from "./clearRole.js";
-import { faqCommand } from "./faq.js";
 import { guildRunsCommand } from "./guildRuns.js";
 import { helpCommand } from "./help.js";
 import { infoCommand } from "./info.js";
@@ -18,13 +17,13 @@ import type { ChatInputCommand } from "./types.js";
 
 // Fullparty management commands are parked until the API auth/endpoints are ready.
 // import { fullpartyCommand } from "./fullparty.js";
+// /faq is temporarily disabled; keep its command and copy in faq.ts for later.
 
 export const commands = [
   applicationsCommand,
   assignRunRoleCommand,
   clearRoleCommand,
   debugAssignRunRoleCommand,
-  faqCommand,
   guildRunsCommand,
   helpCommand,
   infoCommand,

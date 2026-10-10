@@ -803,7 +803,9 @@ for (const [label, audience] of [
 }
 const faqFile = "src/commands/faq.ts";
 const faq = await load(faqFile);
-add("Linking and help", "/faq", faq.createFaqMessage(), faqFile);
+add("Linking and help", "/faq", faq.createFaqMessage(), faqFile, {
+  note: "Temporarily disabled in the bot. Copy is retained for future use.",
+});
 
 const listFile = "src/fullparty/resources/listMessage.ts";
 const list = await load(listFile);

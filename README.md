@@ -758,6 +758,11 @@ has relevant access. Run-management entries require Manage Server or the configu
 bot moderator role. `/setup` appears only with Manage Server, and `/rolesync` only
 with Manage Roles. Server help is ephemeral. The workshop includes all three help
 layouts; actual admin entries are filtered to the invoking member's permissions.
+`/ping` remains available but is omitted from server member help. `/faq` is
+temporarily disabled in both runtime routing and command registration, and omitted
+from every help layout. Its text remains in `src/commands/faq.ts` and the workshop.
+After deploying, rerun command registration in each previously used scope to remove
+any existing `/faq` entry from Discord's command picker.
 
 ## Copying role membership
 
